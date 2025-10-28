@@ -34,11 +34,11 @@ class alignas(64) UInt {
 
 public:
     static constexpr u16 TotalBlocks = B / 64;
-    std::array<u64, TotalBlocks> bits{};
+    std::array<u64, TotalBlocks> bits{};// initialize all elements to zero
 
 private:
     INLINE constexpr u8 charToValue(char c) const {
-        static constexpr auto lut = []() {
+        static constexpr auto lut = []() { // lookup table
             std::array<u8, 256> table; table.fill(255);
             for (u8 i = 0; i < 10; ++i) table['0' + i] = i;
             for (u8 i = 0; i < 6; ++i) { table['a' + i] = 10 + i; table['A' + i] = 10 + i; }
@@ -58,8 +58,11 @@ private:
 
 public:
     constexpr UInt() noexcept = default;
-    constexpr explicit UInt(u64 value) noexcept : bits{value} {}
+
+    constexpr UInt(const u64 value) noexcept { bits[0] = value; }
+
     constexpr UInt(const UInt& o) noexcept = default;
+
     constexpr UInt(UInt&& o) noexcept = default;
 
     constexpr explicit UInt(std::string_view sv) {
@@ -120,8 +123,27 @@ public:
     [[nodiscard]] INLINE constexpr bool operator<=(const UInt& o) const noexcept { return !(o < *this); }
     [[nodiscard]] INLINE constexpr bool operator>=(const UInt& o) const noexcept { return !(*this < o); }
 
-    INLINE constexpr UInt& operator++() noexcept { u16 i=0; while(i<TotalBlocks && ++bits[i]==0) {++i;} return *this; }
-    INLINE constexpr UInt& operator--() noexcept { u16 i=0; while(i<TotalBlocks && --bits[i]==~0ull) {++i;} return *this; }
+    INLINE constexpr UInt& operator++() noexcept {
+        if (++bits[0] != 0) [[likely]] return *this;
+        u16 index = 1;
+        while (index < TotalBlocks) {
+            if (++bits[index] != 0) [[likely]]
+                return *this; // Carry absorvido, retorna imediatamente
+            ++index;
+        }
+        return *this;
+    }
+
+    INLINE constexpr UInt& operator--() noexcept {
+        if (--bits[0] != 0) [[likely]] return *this;
+        u16 index = 1;
+        while (index < TotalBlocks) {
+            if (--bits[index] != 0) [[likely]]
+                return *this; // Borrow absorvido, retorna imediatamente
+            ++index;
+        }
+        return *this;
+    }
     INLINE constexpr UInt operator++(int) noexcept { UInt t=*this; ++*this; return t; }
     INLINE constexpr UInt operator--(int) noexcept { UInt t=*this; --*this; return t; }
 
