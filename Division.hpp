@@ -23,11 +23,17 @@ inline int cmp_n(const u64 *a, const u64 *b, size_t n) {
   return 0;
 }
 
-// Helper: Add N-block numbers: res = a + b
-// Returns carry
-inline u64 add_n(u64 *res, const u64 *a, const u64 *b, size_t n) {
+// Helper: Add N-block numbers: res = a + b. Returns carry
+inline u64 add_n(u64 *__restrict__ res, const u64 *__restrict__ a, const u64 *__restrict__ b, size_t n) {
   unsigned char carry = 0;
-  for (size_t i = 0; i < n; ++i) {
+  size_t i = 0;
+  for (; i + 4 <= n; i += 4) {
+    carry = _addcarry_u64(carry, a[i], b[i], &res[i]);
+    carry = _addcarry_u64(carry, a[i+1], b[i+1], &res[i+1]);
+    carry = _addcarry_u64(carry, a[i+2], b[i+2], &res[i+2]);
+    carry = _addcarry_u64(carry, a[i+3], b[i+3], &res[i+3]);
+  }
+  for (; i < n; ++i) {
     carry = _addcarry_u64(carry, a[i], b[i], &res[i]);
   }
   return carry;
@@ -35,9 +41,16 @@ inline u64 add_n(u64 *res, const u64 *a, const u64 *b, size_t n) {
 
 // Helper: Subtract N-block numbers: res = a - b
 // Returns borrow
-inline u64 sub_n(u64 *res, const u64 *a, const u64 *b, size_t n) {
+inline u64 sub_n(u64 *__restrict__ res, const u64 *__restrict__ a, const u64 *__restrict__ b, size_t n) {
   unsigned char borrow = 0;
-  for (size_t i = 0; i < n; ++i) {
+  size_t i = 0;
+  for (; i + 4 <= n; i += 4) {
+    borrow = _subborrow_u64(borrow, a[i], b[i], &res[i]);
+    borrow = _subborrow_u64(borrow, a[i+1], b[i+1], &res[i+1]);
+    borrow = _subborrow_u64(borrow, a[i+2], b[i+2], &res[i+2]);
+    borrow = _subborrow_u64(borrow, a[i+3], b[i+3], &res[i+3]);
+  }
+  for (; i < n; ++i) {
     borrow = _subborrow_u64(borrow, a[i], b[i], &res[i]);
   }
   return borrow;
@@ -46,7 +59,7 @@ inline u64 sub_n(u64 *res, const u64 *a, const u64 *b, size_t n) {
 // Helper: Shift Left N-block number by bits (0-63)
 // res = a << shift
 // Returns carry out
-inline u64 shl_n(u64 *res, const u64 *a, size_t n, int shift) {
+inline u64 shl_n(u64 *__restrict__ res, const u64 *__restrict__ a, size_t n, int shift) {
   if (shift == 0) {
     if (res != a)
       std::copy_n(a, n, res);
@@ -64,7 +77,7 @@ inline u64 shl_n(u64 *res, const u64 *a, size_t n, int shift) {
 // Helper: Shift Right N-block number by bits (0-63)
 // res = a >> shift
 // Returns carry out (bits shifted out)
-inline u64 shr_n(u64 *res, const u64 *a, size_t n, int shift) {
+inline u64 shr_n(u64 *__restrict__ res, const u64 *__restrict__ a, size_t n, int shift) {
   if (shift == 0) {
     if (res != a)
       std::copy_n(a, n, res);
@@ -79,44 +92,322 @@ inline u64 shr_n(u64 *res, const u64 *a, size_t n, int shift) {
   return carry;
 }
 
+
+
 // Forward declaration
 void div_recursive(u64 *q, u64 *r, const u64 *a, const u64 *b, size_t n,
                    u64 *tmp);
 
-// Base case: 2N / N using hardware division (if N is small) or simple
-// schoolbook For N=1 (64 bits), we have 128 / 64 bit division. x86_64 'div'
-// instruction does 128/64 -> 64 quotient, 64 remainder.
-inline void div_2n_1n_base(u64 *q, u64 *r, const u64 *a, const u64 *b,
-                           size_t n) {
-  // Simple schoolbook division for small N
-  // We assume q and r are pre-allocated (q: n, r: n)
-  // a is 2n, b is n.
-  // This is a placeholder. For high performance, we need a robust base case.
-  // Let's use a simple bit-wise long division or Knuth's Algorithm D for the
-  // base case. Since we are inside Burnikel-Ziegler, we expect N to be small
-  // here (e.g. <= 32). We can just reuse the logic from UInt::div_mod but
-  // adapted for pointers.
+// Base case: 2N / N using Knuth's Algorithm D
+// This is used when N is small enough (e.g. <= 64 blocks)
+inline void div_knuth_base(u64 *__restrict__ q, u64 *__restrict__ r, const u64 *__restrict__ a, size_t an, const u64 *__restrict__ b,
+                    size_t bn) {
+  // Knuth's Algorithm D (The Art of Computer Programming, Vol 2, 4.3.1)
+  // Inputs: a (dividend) of size an, b (divisor) of size bn
+  // Outputs: q (quotient) of size an-bn+1, r (remainder) of size bn
 
-  // Implementing Knuth's Algorithm D on pointers:
-  // Normalize first.
-  // We assume 'a' and 'b' are normalized? BZ usually requires normalization.
-  // Let's assume caller handles normalization or we do it here.
-  // For simplicity in this step, let's assume we call back to a
-  // "schoolbook_div" helper.
+  if (bn == 0) {
+      // Division by zero should be handled by caller or throw
+      return; 
+  }
+  if (an < bn) {
+      // Dividend smaller than divisor
+      std::fill_n(q, an - bn + 1, 0);
+      std::copy_n(a, an, r);
+      std::fill_n(r + an, bn - an, 0);
+      return;
+  }
 
-  // TODO: Implement proper base case.
+  // D1: Normalize - shift v left so its MSB is >= 2^63
+  const int shift = __builtin_clzll(b[bn - 1]);
+  
+  // We need a temporary buffer for normalized u and v
+  // Size needed: u: an+1, v: bn
+  // We can use a small stack buffer if sizes are small, or heap/scratch.
+  // Given this is "base", sizes are likely small (<= 64).
+  // But to be safe and avoid stack overflow on larger sizes, we should use a scratch buffer if possible.
+  // However, the signature doesn't provide scratch for this leaf function efficiently.
+  // Let's assume for "base" usage, we can allocate on stack or use std::vector (slow).
+  // Better: use a fixed size stack buffer since we know the limit for "base" is small (e.g. 64).
+  
+  constexpr size_t MAX_BASE_BLOCKS = 600; // Safe upper bound for base case (2*N <= 510)
+  u64 u_norm[MAX_BASE_BLOCKS + 1];
+  u64 v_norm_storage[MAX_BASE_BLOCKS];
+  const u64* v_ptr;
+
+  // Normalize divisor v
+  if (shift > 0) {
+      shl_n(v_norm_storage, b, bn, shift);
+      v_ptr = v_norm_storage;
+  } else {
+      // Optimization: Avoid copy if no shift
+      v_ptr = b;
+  }
+
+  // Normalize dividend u
+  // u_norm needs to be an + 1 size to handle potential carry
+  if (shift > 0) {
+      u_norm[an] = shl_n(u_norm, a, an, shift);
+  } else {
+      std::copy_n(a, an, u_norm);
+      u_norm[an] = 0;
+  }
+
+  const u64 v_high = v_ptr[bn - 1];
+  const u64 v_next = (bn > 1) ? v_ptr[bn - 2] : 0;
+
+  // D2-D7: Main loop - compute quotient digits
+  // Loop from m = an - bn down to 0
+  for (int j = an - bn; j >= 0; --j) {
+      // D3: Calculate trial quotient digit
+      u64 u_high = u_norm[j + bn];
+      u64 u_mid = u_norm[j + bn - 1];
+      u64 q_hat, r_hat;
+
+      if (u_high == v_high) [[unlikely]] {
+          q_hat = ~0ULL;
+          r_hat = u_mid + v_high;
+          if (r_hat < v_high) { 
+             // Overflowed 64-bit
+          } 
+      } else {
+          u128 dividend = ((u128)u_high << 64) | u_mid;
+          q_hat = dividend / v_high;
+          r_hat = dividend % v_high;
+      }
+
+      // D3 continued: Refine q_hat
+      while (true) {
+           u128 lhs = (u128)q_hat * v_next;
+           u128 rhs = ((u128)r_hat << 64) | u_norm[j + bn - 2];
+           if (lhs <= rhs) [[likely]] break;
+           
+           q_hat--;
+           r_hat += v_high;
+           if (r_hat < v_high) [[unlikely]] break; 
+      }
+
+      // D4: Multiply and subtract
+      u64 mult_carry = 0;
+      unsigned char sub_borrow = 0;
+      
+      size_t i = 0;
+      for (; i + 4 <= bn; i += 4) {
+          u64 hi, lo;
+          
+          // Unroll 0
+          lo = _mulx_u64(q_hat, v_ptr[i], &hi);
+          unsigned char c = _addcarry_u64(0, lo, mult_carry, &lo);
+          mult_carry = hi + c;
+          sub_borrow = _subborrow_u64(sub_borrow, u_norm[j + i], lo, &u_norm[j + i]);
+
+          // Unroll 1
+          lo = _mulx_u64(q_hat, v_ptr[i+1], &hi);
+          c = _addcarry_u64(0, lo, mult_carry, &lo);
+          mult_carry = hi + c;
+          sub_borrow = _subborrow_u64(sub_borrow, u_norm[j + i+1], lo, &u_norm[j + i+1]);
+
+          // Unroll 2
+          lo = _mulx_u64(q_hat, v_ptr[i+2], &hi);
+          c = _addcarry_u64(0, lo, mult_carry, &lo);
+          mult_carry = hi + c;
+          sub_borrow = _subborrow_u64(sub_borrow, u_norm[j + i+2], lo, &u_norm[j + i+2]);
+
+          // Unroll 3
+          lo = _mulx_u64(q_hat, v_ptr[i+3], &hi);
+          c = _addcarry_u64(0, lo, mult_carry, &lo);
+          mult_carry = hi + c;
+          sub_borrow = _subborrow_u64(sub_borrow, u_norm[j + i+3], lo, &u_norm[j + i+3]);
+      }
+
+      for (; i < bn; ++i) {
+          u64 hi, lo;
+          lo = _mulx_u64(q_hat, v_ptr[i], &hi);
+          
+          unsigned char c = _addcarry_u64(0, lo, mult_carry, &lo);
+          mult_carry = hi + c;
+
+          sub_borrow = _subborrow_u64(sub_borrow, u_norm[j + i], lo, &u_norm[j + i]);
+      }
+      
+      u64 old_high = u_norm[j + bn];
+      u64 diff = old_high - mult_carry;
+      bool borrow1 = (old_high < mult_carry);
+      u_norm[j + bn] = diff - sub_borrow;
+      bool borrow2 = (diff < sub_borrow);
+      sub_borrow = borrow1 || borrow2;
+
+      // D5 & D6: Test and add back
+      if (sub_borrow) [[unlikely]] {
+          q_hat--;
+          u64 add_carry = 0;
+          // Use add_n helper? No, it's mixed with u_norm offset.
+          // Just unroll manually or use loop.
+          // This path is rare (prob ~ 2^-64), so keep it simple to save code size?
+          // Or optimize it too? It's rare, so optimization matters less.
+          for (size_t k = 0; k < bn; ++k) {
+              add_carry = _addcarry_u64(add_carry, u_norm[j + k], v_ptr[k], &u_norm[j + k]);
+          }
+          u_norm[j + bn] += add_carry;
+      }
+
+      q[j] = q_hat;
+  }
+
+  // D8: Unnormalize remainder
+  if (shift > 0) {
+      shr_n(r, u_norm, bn, shift);
+  } else {
+      std::copy_n(u_norm, bn, r);
+  }
 }
 
-// Placeholder for Knuth's Algorithm D base case
-// This function needs to be properly implemented for the BZ algorithm to work.
-void div_knuth_base(u64 *q, u64 *r, const u64 *a, size_t an, const u64 *b,
-                    size_t bn) {
-  // This is a placeholder. A proper implementation of Knuth's Algorithm D
-  // or a similar schoolbook division for arbitrary precision numbers
-  // should go here.
-  // For now, we'll just zero out q and r to avoid uninitialized memory access.
-  std::fill_n(q, an - bn + 1, 0); // Quotient size is an - bn + 1
-  std::fill_n(r, bn, 0);          // Remainder size is bn
+
+// Helper for Knuth's Algorithm D
+// Normalizes u and v, then performs division
+// q: quotient (size u_len - v_len + 1)
+// r: remainder (size v_len)
+// u: dividend (size u_len)
+// v: divisor (size v_len)
+template <size_t MaxBlocks = 600>
+inline void div_knuth_impl(u64 *q, u64 *r, const u64 *u, int u_len,
+                           const u64 *v, int v_len) {
+  // D1: Normalize
+  int shift = __builtin_clzll(v[v_len - 1]);
+  int an = u_len;
+  int bn = v_len;
+  
+  // Stack buffers
+  u64 u_norm[MaxBlocks + 1];
+  u64 v_norm_storage[MaxBlocks];
+  const u64* v_ptr;
+
+  // Normalize divisor v
+  if (shift > 0) {
+      shl_n(v_norm_storage, v, bn, shift);
+      v_ptr = v_norm_storage;
+  } else {
+      // Optimization: Avoid copy if no shift
+      v_ptr = v;
+  }
+
+  // Normalize dividend u
+  // u_norm needs to be an + 1 size to handle potential carry
+  if (shift > 0) {
+      u_norm[an] = shl_n(u_norm, u, an, shift);
+  } else {
+      std::copy_n(u, an, u_norm);
+      u_norm[an] = 0;
+  }
+
+  const u64 v_high = v_ptr[bn - 1];
+  const u64 v_next = (bn > 1) ? v_ptr[bn - 2] : 0;
+
+  // D2-D7: Main loop - compute quotient digits
+  // Loop from m = an - bn down to 0
+  for (int j = an - bn; j >= 0; --j) {
+      // D3: Calculate trial quotient digit
+      u64 u_high = u_norm[j + bn];
+      u64 u_mid = u_norm[j + bn - 1];
+      u64 q_hat, r_hat;
+
+      if (u_high == v_high) [[unlikely]] {
+          q_hat = ~0ULL;
+          r_hat = u_mid + v_high;
+          if (r_hat < v_high) { 
+             // Overflowed 64-bit
+          } 
+      } else {
+          u128 dividend = ((u128)u_high << 64) | u_mid;
+          q_hat = dividend / v_high;
+          r_hat = dividend % v_high;
+      }
+
+      // D3 continued: Refine q_hat
+      while (true) {
+           u128 lhs = (u128)q_hat * v_next;
+           u128 rhs = ((u128)r_hat << 64) | u_norm[j + bn - 2];
+           if (lhs <= rhs) [[likely]] break;
+           
+           q_hat--;
+           r_hat += v_high;
+           if (r_hat < v_high) [[unlikely]] break; 
+      }
+
+      // D4: Multiply and subtract
+      u64 mult_carry = 0;
+      unsigned char sub_borrow = 0;
+      
+      size_t i = 0;
+      for (; i + 4 <= bn; i += 4) {
+          u64 hi, lo;
+          
+          // Unrolled multiply
+          u128 prod0 = (u128)q_hat * v_ptr[i];
+          u128 prod1 = (u128)q_hat * v_ptr[i+1];
+          u128 prod2 = (u128)q_hat * v_ptr[i+2];
+          u128 prod3 = (u128)q_hat * v_ptr[i+3];
+          
+          // Add carry to prod
+          prod0 += mult_carry;
+          lo = (u64)prod0; mult_carry = prod0 >> 64;
+          
+          prod1 += mult_carry;
+          u64 lo1 = (u64)prod1; mult_carry = prod1 >> 64;
+          
+          prod2 += mult_carry;
+          u64 lo2 = (u64)prod2; mult_carry = prod2 >> 64;
+          
+          prod3 += mult_carry;
+          u64 lo3 = (u64)prod3; mult_carry = prod3 >> 64;
+          
+          // Subtract from u_norm
+          sub_borrow = _subborrow_u64(sub_borrow, u_norm[j + i], lo, &u_norm[j + i]);
+          sub_borrow = _subborrow_u64(sub_borrow, u_norm[j + i+1], lo1, &u_norm[j + i+1]);
+          sub_borrow = _subborrow_u64(sub_borrow, u_norm[j + i+2], lo2, &u_norm[j + i+2]);
+          sub_borrow = _subborrow_u64(sub_borrow, u_norm[j + i+3], lo3, &u_norm[j + i+3]);
+      }
+      
+      for (; i < bn; ++i) {
+          u128 prod = (u128)q_hat * v_ptr[i] + mult_carry;
+          u64 lo = (u64)prod;
+          mult_carry = prod >> 64;
+          sub_borrow = _subborrow_u64(sub_borrow, u_norm[j + i], lo, &u_norm[j + i]);
+      }
+      
+      // Handle last borrow/carry
+      sub_borrow = _subborrow_u64(sub_borrow, u_norm[j + bn], mult_carry, &u_norm[j + bn]);
+
+      // D6: Add back if negative
+      if (sub_borrow) {
+          q_hat--;
+          unsigned char add_carry = 0;
+          for (size_t k = 0; k < bn; ++k) {
+              add_carry = _addcarry_u64(add_carry, u_norm[j + k], v_ptr[k], &u_norm[j + k]);
+          }
+          u_norm[j + bn] += add_carry;
+      }
+
+      q[j] = q_hat;
+  }
+
+  // D8: Unnormalize remainder
+  if (shift > 0) {
+      shr_n(r, u_norm, bn, shift);
+  } else {
+      std::copy_n(u_norm, bn, r);
+  }
+}
+
+// Legacy wrapper
+inline void div_knuth_base(u64 *q, u64 *r, const u64 *u, int u_len,
+                           const u64 *v, int v_len) {
+    div_knuth_impl<600>(q, r, u, u_len, v, v_len);
+}
+
+inline void div_2n_1n_base(u64 *q, u64 *r, const u64 *a, const u64 *b,
+                           size_t n) {
+    div_knuth_base(q, r, a, 2 * n, b, n);
 }
 
 // Recursive Division: 3m / 2m
@@ -195,7 +486,7 @@ void div_3n_2n(u64 *q, u64 *r, const u64 *a, const u64 *b, size_t m, u64 *tmp) {
 // Temp: Scratch space
 void div_2n_1n(u64 *q, u64 *r, const u64 *a, const u64 *b, size_t n, u64 *tmp) {
   if (n % 2 != 0 ||
-      n <= 64) { // Base case threshold, e.g., 64 blocks (4096 bits)
+      n <= 32) { // Base case threshold: 32 blocks
     div_knuth_base(q, r, a, 2 * n, b, n);
     return;
   }

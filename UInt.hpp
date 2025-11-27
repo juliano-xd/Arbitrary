@@ -24,21 +24,29 @@ using u64 = unsigned long long;
 using u128 = unsigned __int128;
 
 #define BUILTIN_EXPECT(x, y) (__builtin_expect(!!(x), y))
-#define INLINE inline __attribute__((always_inline))
+#define FORCE_INLINE inline __attribute__((always_inline))
 
-template <const u16 B> class alignas(64) UInt;
+template <u8 N> class alignas(64) UInt;
 
-// Main Class Definition
-template <const u16 B> class alignas(64) UInt {
-  static_assert(B > 0 && B % 64 == 0, "Bits must be a positive multiple of 64");
+// Fixed-size arbitrary precision integer class.
+//
+// @tparam N Number of 64-bit limbs.
+//
+// Design Goals:
+// - High performance for small to medium sizes (N <= 64).
+// - Stack allocation (no dynamic memory).
+// - Constant time operations where possible (though many are data-dependent for speed).
+// - Modern C++20/23 features.
+template <u8 N> class alignas(64) UInt {
+  static_assert(N > 0, "Limbs must be positive");
 
 public:
-  static constexpr u16 TotalBlocks = B / 64;
-  std::array<u64, TotalBlocks> bits{}; // initialize all elements to zero
+  static constexpr u8 TotalBlocks = N;
+  std::array<u64, N> bits{}; // initialize all elements to zero
 
 private:
-  INLINE constexpr u8 charToValue(char c) const {
-    static constexpr auto lut = []() { // lookup table
+  FORCE_INLINE constexpr u8 charToValue(char c) const {
+    constexpr auto lut = []() { // lookup table
       std::array<u8, 256> table;
       table.fill(255);
       for (u8 i = 0; i < 10; ++i)
@@ -55,8 +63,8 @@ private:
     return value;
   }
 
-  [[nodiscard]] INLINE u16 num_limbs() const noexcept {
-    for (int i = TotalBlocks - 1; i >= 0; --i) {
+  [[nodiscard]] FORCE_INLINE u8 num_limbs() const noexcept {
+    for (int i = N - 1; i >= 0; --i) {
       if (bits[i] != 0)
         return i + 1;
     }
@@ -86,10 +94,10 @@ public:
       sv.remove_prefix(2);
       if (sv.empty())
         return;
-      if (sv.size() > (TotalBlocks * 16))
+      if (sv.size() > (N * 16))
         throw std::out_of_range("Hex string too long");
       u16 size = sv.size();
-      for (u16 i = 0; i < TotalBlocks && size > 0; ++i) {
+      for (u8 i = 0; i < N && size > 0; ++i) {
         u64 value = 0;
         int chars_to_read = std::min(16, (int)size);
         for (int j = 0; j < chars_to_read; ++j) {
@@ -135,22 +143,22 @@ public:
     return *this;
   }
 
-  [[nodiscard]] INLINE constexpr bool operator==(const UInt &o) const noexcept {
+  [[nodiscard]] FORCE_INLINE constexpr bool operator==(const UInt &o) const noexcept {
     return bits == o.bits;
   }
-  [[nodiscard]] INLINE constexpr bool operator!=(const UInt &o) const noexcept {
+  [[nodiscard]] FORCE_INLINE constexpr bool operator!=(const UInt &o) const noexcept {
     return !(*this == o);
   }
-  [[nodiscard]] INLINE constexpr bool operator==(u64 o) const noexcept {
+  [[nodiscard]] FORCE_INLINE constexpr bool operator==(u64 o) const noexcept {
     if (bits[0] != o)
       return false;
-    for (u16 i = 1; i < TotalBlocks; ++i)
+    for (u8 i = 1; i < N; ++i)
       if (bits[i] != 0)
         return false;
     return true;
   }
-  [[nodiscard]] INLINE constexpr bool operator<(const UInt &o) const noexcept {
-    for (int i = TotalBlocks - 1; i >= 0; --i) {
+  [[nodiscard]] FORCE_INLINE constexpr bool operator<(const UInt &o) const noexcept {
+    for (int i = N - 1; i >= 0; --i) {
       if (bits[i] < o.bits[i])
         return true;
       if (bits[i] > o.bits[i])
@@ -158,21 +166,21 @@ public:
     }
     return false;
   }
-  [[nodiscard]] INLINE constexpr bool operator>(const UInt &o) const noexcept {
+  [[nodiscard]] FORCE_INLINE constexpr bool operator>(const UInt &o) const noexcept {
     return o < *this;
   }
-  [[nodiscard]] INLINE constexpr bool operator<=(const UInt &o) const noexcept {
+  [[nodiscard]] FORCE_INLINE constexpr bool operator<=(const UInt &o) const noexcept {
     return !(o < *this);
   }
-  [[nodiscard]] INLINE constexpr bool operator>=(const UInt &o) const noexcept {
+  [[nodiscard]] FORCE_INLINE constexpr bool operator>=(const UInt &o) const noexcept {
     return !(*this < o);
   }
 
-  INLINE constexpr UInt &operator++() noexcept {
+  FORCE_INLINE constexpr UInt &operator++() noexcept {
     if (++bits[0] != 0) [[likely]]
       return *this;
-    u16 index = 1;
-    while (index < TotalBlocks) {
+    u8 index = 1;
+    while (index < N) {
       if (++bits[index] != 0) [[likely]]
         return *this; // Carry absorvido, retorna imediatamente
       ++index;
@@ -180,89 +188,80 @@ public:
     return *this;
   }
 
-  INLINE constexpr UInt &operator--() noexcept {
+  FORCE_INLINE constexpr UInt &operator--() noexcept {
     if (--bits[0] != 0) [[likely]]
       return *this;
-    u16 index = 1;
-    while (index < TotalBlocks) {
+    u8 index = 1;
+    while (index < N) {
       if (--bits[index] != 0) [[likely]]
         return *this; // Borrow absorvido, retorna imediatamente
       ++index;
     }
     return *this;
   }
-  INLINE constexpr UInt operator++(int) noexcept {
+  FORCE_INLINE constexpr UInt operator++(int) noexcept {
     UInt t = *this;
     ++*this;
     return t;
   }
-  INLINE constexpr UInt operator--(int) noexcept {
+  FORCE_INLINE constexpr UInt operator--(int) noexcept {
     UInt t = *this;
     --*this;
     return t;
   }
 
-  INLINE UInt &operator+=(const UInt &other) noexcept {
-    if consteval {
-      // Versão constexpr (compatibilidade)
+  // --- Unrolling Helpers ---
+  template <u8 I>
+  struct UnrollAdd {
+    static FORCE_INLINE void step(unsigned char &carry, u64 *dst, const u64 *src) {
+      carry = _addcarry_u64(carry, dst[I], src[I], &dst[I]);
+      if constexpr (I + 1 < N)
+        UnrollAdd<I + 1>::step(carry, dst, src);
+    }
+  };
+
+  template <u8 I>
+  struct UnrollSub {
+    static FORCE_INLINE void step(unsigned char &borrow, u64 *dst, const u64 *src) {
+      borrow = _subborrow_u64(borrow, dst[I], src[I], &dst[I]);
+      if constexpr (I + 1 < N)
+        UnrollSub<I + 1>::step(borrow, dst, src);
+    }
+  };
+
+  FORCE_INLINE UInt &operator+=(const UInt &other) noexcept {
+    if (std::is_constant_evaluated()) {
       u64 c = 0;
-      for (u16 i = 0; i < TotalBlocks; ++i) {
+      for (u8 i = 0; i < N; ++i) {
         u128 t = (u128)bits[i] + other.bits[i] + c;
         bits[i] = (u64)t;
         c = t >> 64;
       }
+    } else if constexpr (N <= 56) {
+      unsigned char carry = 0;
+      UnrollAdd<0>::step(carry, bits.data(), other.bits.data());
     } else {
-      if constexpr (TotalBlocks == 1) {
-        unsigned char c = _addcarry_u64(0, bits[0], other.bits[0],
-                                        (unsigned long long *)&bits[0]);
-        (void)c;
-      } else if constexpr (TotalBlocks == 2) {
-        unsigned char c = _addcarry_u64(0, bits[0], other.bits[0],
-                                        (unsigned long long *)&bits[0]);
-        _addcarry_u64(c, bits[1], other.bits[1],
-                      (unsigned long long *)&bits[1]);
-      } else if constexpr (TotalBlocks == 3) {
-        unsigned char c = _addcarry_u64(0, bits[0], other.bits[0],
-                                        (unsigned long long *)&bits[0]);
-        c = _addcarry_u64(c, bits[1], other.bits[1],
-                          (unsigned long long *)&bits[1]);
-        _addcarry_u64(c, bits[2], other.bits[2],
-                      (unsigned long long *)&bits[2]);
-      } else if constexpr (TotalBlocks == 4) {
-        unsigned char c = _addcarry_u64(0, bits[0], other.bits[0],
-                                        (unsigned long long *)&bits[0]);
-        c = _addcarry_u64(c, bits[1], other.bits[1],
-                          (unsigned long long *)&bits[1]);
-        c = _addcarry_u64(c, bits[2], other.bits[2],
-                          (unsigned long long *)&bits[2]);
-        _addcarry_u64(c, bits[3], other.bits[3],
-                      (unsigned long long *)&bits[3]);
-      } else if constexpr (TotalBlocks <= 64) {
-        unsigned char c = _addcarry_u64(0, bits[0], other.bits[0],
-                                        (unsigned long long *)&bits[0]);
-        auto unroll_step = [&](auto i) {
-          c = _addcarry_u64(c, bits[i], other.bits[i],
-                            (unsigned long long *)&bits[i]);
-        };
-        [&]<std::size_t... I>(std::index_sequence<I...>) {
-          (unroll_step(std::integral_constant<std::size_t, I + 1>{}), ...);
-        }(std::make_index_sequence<TotalBlocks - 1>{});
-      } else {
-        unsigned char carry = _addcarry_u64(0, bits[0], other.bits[0],
-                                            (unsigned long long *)&bits[0]);
-#pragma GCC unroll 16
-        for (u16 i = 1; i < TotalBlocks; ++i) {
-          carry = _addcarry_u64(carry, bits[i], other.bits[i],
-                                (unsigned long long *)&bits[i]);
-        }
+      unsigned char carry = 0;
+      u64 *dst = bits.data();
+      const u64 *src = other.bits.data();
+      size_t i = 0;
+      for (; i + 4 <= N; i += 4) {
+        carry = _addcarry_u64(carry, dst[i], src[i], &dst[i]);
+        carry = _addcarry_u64(carry, dst[i + 1], src[i + 1], &dst[i + 1]);
+        carry = _addcarry_u64(carry, dst[i + 2], src[i + 2], &dst[i + 2]);
+        carry = _addcarry_u64(carry, dst[i + 3], src[i + 3], &dst[i + 3]);
+      }
+      for (; i < N; ++i) {
+        carry = _addcarry_u64(carry, dst[i], src[i], &dst[i]);
       }
     }
     return *this;
   }
-  INLINE UInt &operator+=(u64 val) noexcept {
+
+  FORCE_INLINE UInt &operator+=(u64 val) noexcept {
     u64 c = val;
-    u16 i = 0;
-    while (c > 0 && i < TotalBlocks) {
+    u8 i = 0;
+    while (c > 0 && i < N) {
       u128 t = (u128)bits[i] + c;
       bits[i] = (u64)t;
       c = t >> 64;
@@ -270,125 +269,103 @@ public:
     }
     return *this;
   }
-  INLINE UInt &operator-=(const UInt &other) noexcept {
-    if consteval {
-      // Versão constexpr (compatibilidade)
+
+  FORCE_INLINE UInt &operator-=(const UInt &other) noexcept {
+    if (std::is_constant_evaluated()) {
       u64 b = 0;
-      for (u16 i = 0; i < TotalBlocks; ++i) {
+      for (u8 i = 0; i < N; ++i) {
         u128 t = (u128)bits[i] - other.bits[i] - b;
         bits[i] = (u64)t;
         b = (t >> 64) & 1;
       }
+    } else if constexpr (N <= 56) {
+      unsigned char borrow = 0;
+      UnrollSub<0>::step(borrow, bits.data(), other.bits.data());
     } else {
-      if constexpr (TotalBlocks == 1) {
-        unsigned char b = _subborrow_u64(0, bits[0], other.bits[0],
-                                         (unsigned long long *)&bits[0]);
-        (void)b;
-      } else if constexpr (TotalBlocks == 2) {
-        unsigned char b = _subborrow_u64(0, bits[0], other.bits[0],
-                                         (unsigned long long *)&bits[0]);
-        _subborrow_u64(b, bits[1], other.bits[1],
-                       (unsigned long long *)&bits[1]);
-      } else if constexpr (TotalBlocks == 3) {
-        unsigned char b = _subborrow_u64(0, bits[0], other.bits[0],
-                                         (unsigned long long *)&bits[0]);
-        b = _subborrow_u64(b, bits[1], other.bits[1],
-                           (unsigned long long *)&bits[1]);
-        _subborrow_u64(b, bits[2], other.bits[2],
-                       (unsigned long long *)&bits[2]);
-      } else if constexpr (TotalBlocks == 4) {
-        unsigned char b = _subborrow_u64(0, bits[0], other.bits[0],
-                                         (unsigned long long *)&bits[0]);
-        b = _subborrow_u64(b, bits[1], other.bits[1],
-                           (unsigned long long *)&bits[1]);
-        b = _subborrow_u64(b, bits[2], other.bits[2],
-                           (unsigned long long *)&bits[2]);
-        _subborrow_u64(b, bits[3], other.bits[3],
-                       (unsigned long long *)&bits[3]);
-      } else if constexpr (TotalBlocks <= 64) {
-        unsigned char b = _subborrow_u64(0, bits[0], other.bits[0],
-                                         (unsigned long long *)&bits[0]);
-        auto unroll_step = [&](auto i) {
-          b = _subborrow_u64(b, bits[i], other.bits[i],
-                             (unsigned long long *)&bits[i]);
-        };
-        [&]<std::size_t... I>(std::index_sequence<I...>) {
-          (unroll_step(std::integral_constant<std::size_t, I + 1>{}), ...);
-        }(std::make_index_sequence<TotalBlocks - 1>{});
-      } else {
-        // Versão com loop e hint de unrolling
-        unsigned char borrow = _subborrow_u64(0, bits[0], other.bits[0],
-                                              (unsigned long long *)&bits[0]);
-#pragma GCC unroll 8
-        for (u16 i = 1; i < TotalBlocks; ++i) {
-          borrow = _subborrow_u64(borrow, bits[i], other.bits[i],
-                                  (unsigned long long *)&bits[i]);
-        }
+      unsigned char borrow = 0;
+      u64 *dst = bits.data();
+      const u64 *src = other.bits.data();
+      size_t i = 0;
+
+      for (; i + 4 <= N; i += 4) {
+        borrow = _subborrow_u64(borrow, dst[i], src[i], &dst[i]);
+        borrow = _subborrow_u64(borrow, dst[i + 1], src[i + 1], &dst[i + 1]);
+        borrow = _subborrow_u64(borrow, dst[i + 2], src[i + 2], &dst[i + 2]);
+        borrow = _subborrow_u64(borrow, dst[i + 3], src[i + 3], &dst[i + 3]);
+      }
+
+      for (; i < N; ++i) {
+        borrow = _subborrow_u64(borrow, dst[i], src[i], &dst[i]);
       }
     }
     return *this;
   }
-  INLINE UInt &operator*=(const UInt &other) noexcept;
-  INLINE UInt &operator*=(u64 val) noexcept;
-  INLINE UInt &operator/=(const UInt &other) {
+  FORCE_INLINE UInt &operator*=(const UInt &other) noexcept;
+  FORCE_INLINE UInt &operator*=(u64 val) noexcept;
+  // Division
+  [[nodiscard]] static std::pair<UInt<N>, UInt<N>> divmod(UInt<N> u, UInt<N> v);
+  [[nodiscard]] FORCE_INLINE UInt<N> operator/(const UInt<N> &other) const;
+  [[nodiscard]] FORCE_INLINE UInt<N> operator%(const UInt<N> &other) const;
+  FORCE_INLINE UInt<N> &operator/=(const UInt<N> &other) {
     *this = divmod(*this, other).first;
     return *this;
   }
-  INLINE UInt &operator%=(const UInt &other) {
+  FORCE_INLINE UInt<N> &operator%=(const UInt<N> &other) {
     *this = divmod(*this, other).second;
     return *this;
   }
-  INLINE constexpr UInt &operator&=(const UInt &other) noexcept {
-    for (u16 i = 0; i < TotalBlocks; ++i)
+  FORCE_INLINE constexpr UInt &operator&=(const UInt &other) noexcept {
+    for (u8 i = 0; i < N; ++i)
       bits[i] &= other.bits[i];
     return *this;
   }
-  INLINE constexpr UInt &operator|=(const UInt &other) noexcept {
-    for (u16 i = 0; i < TotalBlocks; ++i)
+  FORCE_INLINE constexpr UInt &operator|=(const UInt &other) noexcept {
+    for (u8 i = 0; i < N; ++i)
       bits[i] |= other.bits[i];
     return *this;
   }
-  INLINE constexpr UInt &operator^=(const UInt &other) noexcept {
-    for (u16 i = 0; i < TotalBlocks; ++i)
+  FORCE_INLINE constexpr UInt &operator^=(const UInt &other) noexcept {
+    for (u8 i = 0; i < N; ++i)
       bits[i] ^= other.bits[i];
     return *this;
   }
-  INLINE constexpr UInt &operator<<=(u16 n) noexcept;
-  INLINE constexpr UInt &operator>>=(u16 n) noexcept;
+  FORCE_INLINE constexpr UInt &operator<<=(u16 n) noexcept;
+  FORCE_INLINE constexpr UInt &operator>>=(u16 n) noexcept;
 
-  [[nodiscard]] static std::pair<UInt, UInt> divmod(UInt u, UInt v);
+
 
   [[nodiscard]] std::string to_string() const;
   [[nodiscard]] std::string to_hex_string() const;
-  [[nodiscard]] INLINE constexpr bool is_zero() const noexcept {
+  [[nodiscard]] FORCE_INLINE constexpr bool is_zero() const noexcept {
     for (u64 limb : bits)
       if (limb != 0)
         return false;
     return true;
   }
-  [[nodiscard]] INLINE constexpr bool bt(const u16 index) const noexcept {
-    if (BUILTIN_EXPECT(index >= B, 0))
+  [[nodiscard]] FORCE_INLINE constexpr bool bt(const u16 index) const noexcept {
+    if (BUILTIN_EXPECT(index >= N * 64, 0))
       return false;
     return (bits[index / 64] >> (index % 64)) & 1;
   }
-  INLINE constexpr void bts(const u16 index) noexcept {
-    if (BUILTIN_EXPECT(index < B, 1))
+  FORCE_INLINE constexpr void bts(const u16 index) noexcept {
+    if (BUILTIN_EXPECT(index < N * 64, 1))
       bits[index / 64] |= (1ull << (index % 64));
   }
 };
 
 // --- Method Implementations ---
 
-template <u16 B>
-INLINE UInt<B> &UInt<B>::operator*=(const UInt<B> &other) noexcept {
-  UInt<B> self_copy = *this;
+template <u8 N>
+FORCE_INLINE UInt<N> &UInt<N>::operator*=(const UInt<N> &other) noexcept {
+  UInt<N> self_copy = *this;
   this->bits.fill(0);
 
-  if constexpr (TotalBlocks <= 2) {
-    // Small sizes: Use intrinsics manually for best latency
+  if constexpr (N <= 6) {
+    // Zone 1: Schoolbook Unrolled (Template Recursion)
+    // Fastest for N = 1 to 6
     [&]<std::size_t... I>(std::index_sequence<I...>) {
       auto outer_step = [&](auto i_const) {
-        constexpr u16 i = i_const;
+        constexpr u8 i = i_const;
         u64 y = self_copy.bits[i];
         if (y == 0)
           return;
@@ -396,74 +373,62 @@ INLINE UInt<B> &UInt<B>::operator*=(const UInt<B> &other) noexcept {
         u128 carry = 0;
         [&]<std::size_t... J>(std::index_sequence<J...>) {
           auto inner_step = [&](auto j_const) {
-            constexpr u16 j = j_const;
-            if constexpr (i + j < TotalBlocks) {
+            constexpr u8 j = j_const;
+            if constexpr (i + j < N) {
               u64 hi, lo;
               lo = _mulx_u64(other.bits[j], y, &hi);
 
-              u64 c_in = (u64)carry;
-              u64 c_extra = (u64)(carry >> 64);
+              u64 carry_lo = (u64)carry;
+              u64 carry_hi = (u64)(carry >> 64);
 
-              unsigned char c1 =
-                  _addcarry_u64(0, this->bits[i + j], lo, &this->bits[i + j]);
+              unsigned char c1 = _addcarry_u64(0, lo, carry_lo, &lo);
               unsigned char c2 =
-                  _addcarry_u64(0, this->bits[i + j], c_in, &this->bits[i + j]);
-
-              carry = (u128)hi + c1 + c2 + c_extra;
+                  _addcarry_u64(0, lo, this->bits[i + j], &this->bits[i + j]);
+              
+              carry = (u128)hi + carry_hi + c1 + c2;
             }
           };
           (inner_step(std::integral_constant<std::size_t, J>{}), ...);
-        }(std::make_index_sequence<TotalBlocks - i>{});
+        }(std::make_index_sequence<N - i>{});
       };
       (outer_step(std::integral_constant<std::size_t, I>{}), ...);
-    }(std::make_index_sequence<TotalBlocks>{});
-  } else if constexpr (TotalBlocks <= 32) {
-    // Medium sizes: Use u128 arithmetic, letting compiler schedule carries.
-    [&]<std::size_t... I>(std::index_sequence<I...>) {
-      auto outer_step = [&](auto i_const) {
-        constexpr u16 i = i_const;
-        u64 y = self_copy.bits[i];
-        if (y == 0)
-          return;
+    }(std::make_index_sequence<N>{});
 
-        u64 c = 0;
-        [&]<std::size_t... J>(std::index_sequence<J...>) {
-          auto inner_step = [&](auto j_const) {
-            constexpr u16 j = j_const;
-            if constexpr (i + j < TotalBlocks) {
-              u128 temp = (u128)other.bits[j] * y + this->bits[i + j] + c;
-              this->bits[i + j] = (u64)temp;
-              c = temp >> 64;
-            }
-          };
-          (inner_step(std::integral_constant<std::size_t, J>{}), ...);
-        }(std::make_index_sequence<TotalBlocks - i>{});
-      };
-      (outer_step(std::integral_constant<std::size_t, I>{}), ...);
-    }(std::make_index_sequence<TotalBlocks>{});
+  } else if constexpr (N <= 32) {
+    // Zone 2: Schoolbook Looped
+    // Fastest for N = 7 to 32 (Extended based on benchmark)
+    // Truncated schoolbook is O(N^2/2), very competitive against Karatsuba O(N^1.58) for small N.
+    for (u8 i = 0; i < N; ++i) {
+      u64 y = self_copy.bits[i];
+      if (y == 0)
+        continue;
+
+      u128 carry = 0;
+      for (u8 j = 0; j < N - i; ++j) {
+        u128 temp = (u128)other.bits[j] * y + this->bits[i + j] + carry;
+        this->bits[i + j] = (u64)temp;
+        carry = temp >> 64;
+      }
+    }
   } else {
-    // Large sizes: Use Karatsuba
-    // Allocate temp buffer once. Size needed is approx 8*N.
-    // For N=4096 bits (64 u64s), 8*64 = 512 u64s = 4KB. Small enough for stack?
-    // Maybe not for deep recursion or very large N.
-    // Let's use a vector for now, but it's ONE allocation per operator*= call,
-    // not recursive. Ideally we'd use a thread_local scratch buffer or a custom
-    // allocator. For now, std::vector is fine as it's O(1) allocation count vs
-    // O(log N) before. Actually, before it was 1 allocation per call too (in
-    // mul_truncated). But we can optimize this further later.
-
-    size_t n = TotalBlocks;
+    // Zone 3: Karatsuba
+    // Fastest for N >= 33
     // Buffer size: 8n + 1000 safety
-    std::vector<u64> tmp(8 * n + 1000);
-    Karatsuba::mul_truncated(this->bits.data(), self_copy.bits.data(),
-                             other.bits.data(), TotalBlocks, tmp.data());
+    alignas(64) u64 tmp[8 * N + 1000];  // 64-byte aligned for cache efficiency
+    
+    if (this == &other) {
+        Karatsuba::square_truncated_fixed<N>(this->bits.data(), self_copy.bits.data(), tmp);
+    } else {
+        Karatsuba::mul_truncated_fixed<N>(this->bits.data(), self_copy.bits.data(),
+                                 other.bits.data(), tmp);
+    }
   }
   return *this;
 }
 
-template <u16 B> INLINE UInt<B> &UInt<B>::operator*=(u64 val) noexcept {
+template <u8 N> FORCE_INLINE UInt<N> &UInt<N>::operator*=(u64 val) noexcept {
   u64 c = 0;
-  for (u16 i = 0; i < TotalBlocks; ++i) {
+  for (u8 i = 0; i < N; ++i) {
     u128 temp = (u128)bits[i] * val + c;
     bits[i] = (u64)temp;
     c = temp >> 64;
@@ -471,24 +436,24 @@ template <u16 B> INLINE UInt<B> &UInt<B>::operator*=(u64 val) noexcept {
   return *this;
 }
 
-template <u16 B>
-INLINE constexpr UInt<B> &UInt<B>::operator<<=(u16 n) noexcept {
+template <u8 N>
+FORCE_INLINE constexpr UInt<N> &UInt<N>::operator<<=(u16 n) noexcept {
   if (BUILTIN_EXPECT(n == 0, 1))
     return *this;
-  if (n >= B) {
+  if (n >= N * 64) {
     bits.fill(0);
     return *this;
   }
   const u16 block_shift = n / 64;
   const u16 bit_shift = n % 64;
   if (block_shift > 0) {
-    for (int i = TotalBlocks - 1; i >= (int)block_shift; --i)
+    for (int i = N - 1; i >= (int)block_shift; --i)
       bits[i] = bits[i - block_shift];
     std::fill(bits.begin(), bits.begin() + block_shift, 0ull);
   }
   if (bit_shift > 0) {
     u64 carry = 0;
-    for (u16 i = 0; i < TotalBlocks; ++i) {
+    for (u8 i = 0; i < N; ++i) {
       u64 next_carry = bits[i] >> (64 - bit_shift);
       bits[i] = (bits[i] << bit_shift) | carry;
       carry = next_carry;
@@ -497,24 +462,24 @@ INLINE constexpr UInt<B> &UInt<B>::operator<<=(u16 n) noexcept {
   return *this;
 }
 
-template <u16 B>
-INLINE constexpr UInt<B> &UInt<B>::operator>>=(u16 n) noexcept {
+template <u8 N>
+FORCE_INLINE constexpr UInt<N> &UInt<N>::operator>>=(u16 n) noexcept {
   if (BUILTIN_EXPECT(n == 0, 1))
     return *this;
-  if (n >= B) {
+  if (n >= N * 64) {
     bits.fill(0);
     return *this;
   }
   const u16 block_shift = n / 64;
   const u16 bit_shift = n % 64;
   if (block_shift > 0) {
-    for (u16 i = 0; i < TotalBlocks - block_shift; ++i)
+    for (u8 i = 0; i < N - block_shift; ++i)
       bits[i] = bits[i + block_shift];
-    std::fill(bits.begin() + TotalBlocks - block_shift, bits.end(), 0ull);
+    std::fill(bits.begin() + N - block_shift, bits.end(), 0ull);
   }
   if (bit_shift > 0) {
     u64 carry = 0;
-    for (int i = TotalBlocks - 1; i >= 0; --i) {
+    for (int i = N - 1; i >= 0; --i) {
       u64 next_carry = bits[i] << (64 - bit_shift);
       bits[i] = (bits[i] >> bit_shift) | carry;
       carry = next_carry;
@@ -525,204 +490,178 @@ INLINE constexpr UInt<B> &UInt<B>::operator>>=(u16 n) noexcept {
 
 // Hybrid division: fast path for single-limb divisor, correct slow path for
 // others.
-template <u16 B>
-std::pair<UInt<B>, UInt<B>> UInt<B>::divmod(UInt<B> u, UInt<B> v) {
+template <u8 N>
+std::pair<UInt<N>, UInt<N>> UInt<N>::divmod(UInt<N> u, UInt<N> v) {
   if (v.is_zero())
     throw std::domain_error("Division by zero");
   if (u < v)
-    return {UInt<B>(0), u};
+    return {UInt<N>(0), u};
 
   // FAST PATH for single-limb divisor
-  u16 n = v.num_limbs();
+  u8 n = v.num_limbs();
   if (n == 1) {
     u64 rem = 0;
-    UInt<B> quo = {};
+    UInt<N> quo = {};
     u64 d = v.bits[0];
     for (int i = u.num_limbs() - 1; i >= 0; --i) {
       u128 temp = ((u128)rem << 64) | u.bits[i];
       quo.bits[i] = temp / d;
       rem = temp % d;
     }
-    return {quo, UInt<B>(rem)};
+    return {quo, UInt<N>(rem)};
   }
+  
 
-  // Knuth's Algorithm D (The Art of Computer Programming, Vol 2, 4.3.1)
-  u16 m = u.num_limbs();
 
-  // D1: Normalize - shift v left so its MSB is >= 2^63
-  const int shift = __builtin_clzll(v.bits[n - 1]);
+  // Use Division.hpp implementation
+  UInt<N> q{}, r{};
 
-  // Allocate normalized dividend (m+1 limbs needed)
-  std::array<u64, TotalBlocks + 1> u_norm{};
-
-  if (__builtin_expect(shift > 0, 1)) {
-    // Normalize divisor and dividend
-    v <<= shift;
-    u64 carry = 0;
-    for (u16 i = 0; i < m; ++i) {
-      u64 val = u.bits[i];
-      u_norm[i] = (val << shift) | carry;
-      carry = val >> (64 - shift);
-    }
-    u_norm[m] = carry;
+  if constexpr (N < 34) {
+    // Zone 1: Knuth D (Iterative)
+    Division::div_knuth_impl<N>(q.bits.data(), r.bits.data(), u.bits.data(),
+                             u.num_limbs(), v.bits.data(), v.num_limbs());
   } else {
-    // No normalization needed - fast path
-    for (u16 i = 0; i < m; ++i)
-      u_norm[i] = u.bits[i];
-  }
-
-  UInt<B> q{};
-  const u64 v_high = v.bits[n - 1];
-  const u64 v_next = (n > 1) ? v.bits[n - 2] : 0;
-
-  // D2-D7: Main loop - compute quotient digits
-  for (int j = m - n; j >= 0; --j) {
-    // D3: Calculate trial quotient digit
-    u64 u_high = u_norm[j + n];
-    u64 u_mid = u_norm[j + n - 1];
-    u64 q_hat, r_hat;
-
-    if (u_high == v_high) {
-      q_hat = ~0ULL;
-      r_hat = u_mid + v_high;
+    // Zone 2: Burnikel-Ziegler (Recursive)
+    // Runtime check: if divisor is small, avoid recursion overhead
+    // Runtime check: if difference in size is small, use Knuth.
+    // BZ is efficient for 2n / n. If u and v are close in size, Knuth is faster (O(N * (N-M))).
+    int u_len = u.num_limbs();
+    int v_len = v.num_limbs();
+    if (u_len - v_len < 32) {
+      // Use templated implementation with stack buffer size N
+      // This is safe because u_len <= N.
+      Division::div_knuth_impl<N>(q.bits.data(), r.bits.data(), u.bits.data(),
+                               u_len, v.bits.data(), v_len);
     } else {
-      u128 dividend = ((u128)u_high << 64) | u_mid;
-      q_hat = dividend / v_high;
-      r_hat = dividend % v_high;
-    }
-
-    // D3 continued: Refine q_hat to ensure it's not too large
-    while (q_hat > 0) {
-      u128 lhs = (u128)q_hat * v_next;
-      u128 rhs = ((u128)r_hat << 64) | u_norm[j + n - 2];
-      if (lhs <= rhs)
-        break;
-      q_hat--;
-      r_hat += v_high;
-      if (r_hat < v_high)
-        break; // Overflow
-    }
-
-    // D4: Multiply and subtract - u_norm[j..j+n] -= q_hat * v[0..n-1]
-    u64 mult_carry = 0;
-    unsigned char sub_borrow = 0;
-
-    // Unroll inner loop for small N (common case in recursive division or just
-    // small numbers) But n is runtime variable here (divisor size). We can't
-    // use constexpr if for n. But we can use a Duff's device or just rely on
-    // compiler loop unrolling. Let's try to help compiler by splitting the
-    // loop.
-
-    u16 i = 0;
-    // Main loop unrolled by 4
-    for (; i + 4 <= n; i += 4) {
-      u64 hi, lo;
-      unsigned char c;
-
-      // 0
-      lo = _mulx_u64(q_hat, v.bits[i], &hi);
-      c = _addcarry_u64(0, lo, mult_carry, &lo);
-      mult_carry = hi + c;
-      sub_borrow =
-          _subborrow_u64(sub_borrow, u_norm[j + i], lo, &u_norm[j + i]);
-
-      // 1
-      lo = _mulx_u64(q_hat, v.bits[i + 1], &hi);
-      c = _addcarry_u64(0, lo, mult_carry, &lo);
-      mult_carry = hi + c;
-      sub_borrow =
-          _subborrow_u64(sub_borrow, u_norm[j + i + 1], lo, &u_norm[j + i + 1]);
-
-      // 2
-      lo = _mulx_u64(q_hat, v.bits[i + 2], &hi);
-      c = _addcarry_u64(0, lo, mult_carry, &lo);
-      mult_carry = hi + c;
-      sub_borrow =
-          _subborrow_u64(sub_borrow, u_norm[j + i + 2], lo, &u_norm[j + i + 2]);
-
-      // 3
-      lo = _mulx_u64(q_hat, v.bits[i + 3], &hi);
-      c = _addcarry_u64(0, lo, mult_carry, &lo);
-      mult_carry = hi + c;
-      sub_borrow =
-          _subborrow_u64(sub_borrow, u_norm[j + i + 3], lo, &u_norm[j + i + 3]);
-    }
-
-    // Handle remaining
-    for (; i < n; ++i) {
-      u64 hi, lo;
-      lo = _mulx_u64(q_hat, v.bits[i], &hi);
-
-      unsigned char c = _addcarry_u64(0, lo, mult_carry, &lo);
-      mult_carry = hi + c;
-
-      sub_borrow =
-          _subborrow_u64(sub_borrow, u_norm[j + i], lo, &u_norm[j + i]);
-    }
-
-    u64 old_high = u_norm[j + n];
-    u_norm[j + n] = old_high - mult_carry - sub_borrow;
-    sub_borrow = (u_norm[j + n] > old_high) ||
-                 ((mult_carry || sub_borrow) && u_norm[j + n] >= old_high);
-
-    // D5 & D6: Test and add back if needed (rare - happens ~1/2^64)
-    if (__builtin_expect(sub_borrow, 0)) {
-      q_hat--;
-      u64 add_carry = 0;
-      for (u16 i = 0; i < n; ++i) {
-        u128 sum = (u128)u_norm[j + i] + v.bits[i] + add_carry;
-        u_norm[j + i] = (u64)sum;
-        add_carry = sum >> 64;
+      // Zone 2: Burnikel-Ziegler (Recursive)
+      // We must normalize v so that the most significant bit is 1.
+      // And we must provide a 2N buffer for u.
+      
+      // 1. Calculate shift to normalize v
+      // We know v.num_limbs() >= 34 (from the check above).
+      // Find the most significant limb.
+      int n_limbs = v.num_limbs();
+      int shift_limbs = N - n_limbs;
+      int shift_bits = __builtin_clzll(v.bits[n_limbs - 1]);
+      
+      // Total shift needed to make MSB of v at bit (N*64 - 1)
+      // v_norm = v << (shift_limbs * 64 + shift_bits)
+      
+      // Stack buffers
+      // u_norm: 2N limbs (required by div_2n_1n)
+      u64 u_norm[2 * N];
+      u64 v_norm[N];
+      // Stack buffer for recursion
+      // Size estimation: Need ~5.5N for structure + Karatsuba scratch.
+      // Increased to 20*N + 1000 to be absolutely safe against stack smashing.
+      u64 tmp[20 * N + 1000]; // Scratch
+      
+      // 2. Normalize v
+      // We can use the Division helpers if we make them public or duplicate logic.
+      // For now, let's do it manually or use local helpers.
+      // Actually, we can just use the shift operators of UInt if we cast/copy.
+      // But we are inside UInt, so we can use private helpers? 
+      // Let's use a simple loop for normalization.
+      
+      // Normalize v into v_norm
+      if (shift_limbs > 0 || shift_bits > 0) {
+          // Shift left by shift_limbs blocks
+          for(int i = N - 1; i >= shift_limbs; --i)
+              v_norm[i] = v.bits[i - shift_limbs];
+          std::fill_n(v_norm, shift_limbs, 0);
+          
+          // Shift left by shift_bits
+          if (shift_bits > 0) {
+              u64 carry = 0;
+              for(int i = 0; i < N; ++i) {
+                  u64 val = v_norm[i];
+                  v_norm[i] = (val << shift_bits) | carry;
+                  carry = val >> (64 - shift_bits);
+              }
+          }
+      } else {
+          std::copy_n(v.bits.data(), N, v_norm);
       }
-      u_norm[j + n] += add_carry;
+      
+      // 3. Normalize u into u_norm (size 2N)
+      // u is size N. We place it in u_norm, shifted.
+      std::fill_n(u_norm, 2 * N, 0);
+      
+      // Copy u to u_norm with block shift
+      // u_norm has 2N. u has N.
+      // We shift u left by shift_limbs blocks.
+      // u fits in lower N+shift_limbs? No, u is N.
+      // u_norm is 2N.
+      for(int i = 0; i < N; ++i) {
+          u_norm[i + shift_limbs] = u.bits[i];
+      }
+      
+      // Bit shift u_norm
+      if (shift_bits > 0) {
+          u64 carry = 0;
+          // We only need to shift up to N + shift_limbs + 1?
+          // Just shift all 2N to be safe and simple.
+          for(int i = 0; i < 2 * N; ++i) {
+              u64 val = u_norm[i];
+              u_norm[i] = (val << shift_bits) | carry;
+              carry = val >> (64 - shift_bits);
+          }
+      }
+      
+      // 4. Call Recursive Division
+      Division::div_recursive(q.bits.data(), r.bits.data(), u_norm,
+                              v_norm, N, tmp);
+                              
+      // 5. Unnormalize Remainder
+      // r = r >> shift
+      if (shift_bits > 0) {
+          u64 carry = 0;
+          for(int i = N - 1; i >= 0; --i) {
+              u64 val = r.bits[i];
+              r.bits[i] = (val >> shift_bits) | carry;
+              carry = (val << (64 - shift_bits));
+          }
+      }
+      if (shift_limbs > 0) {
+          for(int i = 0; i < N - shift_limbs; ++i)
+              r.bits[i] = r.bits[i + shift_limbs];
+          std::fill_n(r.bits.data() + N - shift_limbs, shift_limbs, 0);
+      }
     }
-
-    q.bits[j] = q_hat;
-  }
-
-  // D8: Unnormalize remainder
-  UInt<B> r{};
-  if (__builtin_expect(shift > 0, 1)) {
-    u64 carry = 0;
-    for (int i = n - 1; i >= 0; --i) {
-      u64 val = u_norm[i];
-      r.bits[i] = (val >> shift) | carry;
-      carry = (val & ((1ULL << shift) - 1)) << (64 - shift);
-    }
-  } else {
-    // No denormalization needed - fast path
-    for (u16 i = 0; i < n; ++i)
-      r.bits[i] = u_norm[i];
   }
 
   return {q, r};
 }
 
-template <u16 B> std::string UInt<B>::to_string() const {
+template <u8 N> std::string UInt<N>::to_string() const {
   if (is_zero())
     return "0";
-  UInt<B> temp = *this;
+  UInt<N> temp = *this;
   constexpr u64 CHUNK_POW = 1000000000000000000ull;
   constexpr int CHUNK_SIZE = 18;
-  std::vector<u64> chunks;
-  chunks.reserve((B * 301LLU / 1000) / 18 + 2);
+  
+  // Max chunks needed: N * 64 bits * log10(2) / 18 approx N * 1.1
+  // For N=255, ~280 chunks. Safe buffer 300.
+  u64 chunks[300];
+  int chunk_count = 0;
+  
   while (!temp.is_zero()) {
-    auto [quotient, remainder_uint] = divmod(temp, UInt<B>(CHUNK_POW));
-    chunks.push_back(remainder_uint.bits[0]);
+    auto [quotient, remainder_uint] = divmod(temp, UInt<N>(CHUNK_POW));
+    chunks[chunk_count++] = remainder_uint.bits[0];
     temp = std::move(quotient);
   }
   std::ostringstream oss;
-  oss << chunks.back();
-  for (auto it = chunks.rbegin() + 1; it != chunks.rend(); ++it) {
-    oss << std::setw(CHUNK_SIZE) << std::setfill('0') << *it;
+  oss << chunks[chunk_count - 1];
+  for (int i = chunk_count - 2; i >= 0; --i) {
+    oss << std::setw(CHUNK_SIZE) << std::setfill('0') << chunks[i];
   }
   return oss.str();
 }
 
-template <u16 B> std::string UInt<B>::to_hex_string() const {
+template <u8 N> std::string UInt<N>::to_hex_string() const {
   if (is_zero())
     return "0x0";
-  int msb_idx = TotalBlocks - 1;
+  int msb_idx = N - 1;
   while (msb_idx > 0 && bits[msb_idx] == 0)
     --msb_idx;
   std::ostringstream oss;
@@ -734,36 +673,36 @@ template <u16 B> std::string UInt<B>::to_hex_string() const {
 }
 
 // --- Free Operators ---
-template <u16 B>
-[[nodiscard]] INLINE constexpr UInt<B> operator+(UInt<B> lhs,
-                                                 const UInt<B> &rhs) noexcept {
+template <u8 N>
+[[nodiscard]] FORCE_INLINE constexpr UInt<N> operator+(UInt<N> lhs,
+                                                 const UInt<N> &rhs) noexcept {
   return lhs += rhs;
 }
-template <u16 B>
-[[nodiscard]] INLINE constexpr UInt<B> operator-(UInt<B> lhs,
-                                                 const UInt<B> &rhs) noexcept {
+template <u8 N>
+[[nodiscard]] FORCE_INLINE constexpr UInt<N> operator-(UInt<N> lhs,
+                                                 const UInt<N> &rhs) noexcept {
   return lhs -= rhs;
 }
-template <u16 B>
-[[nodiscard]] INLINE UInt<B> operator*(UInt<B> lhs,
-                                       const UInt<B> &rhs) noexcept {
+template <u8 N>
+[[nodiscard]] FORCE_INLINE UInt<N> operator*(UInt<N> lhs,
+                                       const UInt<N> &rhs) noexcept {
   return lhs *= rhs;
 }
-template <u16 B>
-[[nodiscard]] INLINE UInt<B> operator/(UInt<B> lhs, const UInt<B> &rhs) {
+template <u8 N>
+[[nodiscard]] FORCE_INLINE UInt<N> operator/(UInt<N> lhs, const UInt<N> &rhs) {
   return lhs /= rhs;
 }
-template <u16 B>
-[[nodiscard]] INLINE UInt<B> operator%(UInt<B> lhs, const UInt<B> &rhs) {
+template <u8 N>
+[[nodiscard]] FORCE_INLINE UInt<N> operator%(UInt<N> lhs, const UInt<N> &rhs) {
   return lhs %= rhs;
 }
-template <u16 B>
-[[nodiscard]] INLINE constexpr UInt<B> operator<<(UInt<B> lhs,
+template <u8 N>
+[[nodiscard]] FORCE_INLINE constexpr UInt<N> operator<<(UInt<N> lhs,
                                                   u16 rhs) noexcept {
   return lhs <<= rhs;
 }
-template <u16 B>
-[[nodiscard]] INLINE constexpr UInt<B> operator>>(UInt<B> lhs,
+template <u8 N>
+[[nodiscard]] FORCE_INLINE constexpr UInt<N> operator>>(UInt<N> lhs,
                                                   u16 rhs) noexcept {
   return lhs >>= rhs;
 }
