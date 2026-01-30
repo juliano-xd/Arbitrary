@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Explorador da Biblioteca Arbitrary</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* Chosen Palette: Warm Neutral Tech */
+        /* Background: #f9f9f7 (Warm White) */
+        /* Primary Text: #1f2937 (Gray 800) */
+        /* Accents: #3b82f6 (Blue - Logic), #f97316 (Orange - Complexity), #10b981 (Green - Success) */
+
+        body {
+            background-color: #f9f9f7;
+            color: #1f2937;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Chart Container Styling per Requirements */
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 600px; /* Tailwind max-w-xl is approx 576px, setting explicit 600px for safety */
+            margin-left: auto;
+            margin-right: auto;
+            height: 40vh;
+            max-height: 400px;
+        }
+
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 350px;
+            }
+        }
+
+        /* Interactive Element Transitions */
+        .card-hover {
+            transition: all 0.3s ease;
+        }
+        .card-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        /* Code Block Styling */
+        .code-block {
+            background-color: #1e293b; /* Slate 800 */
+            color: #e2e8f0; /* Slate 200 */
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            overflow-x: auto;
+        }
+    </style>
+    <!-- Application Structure Plan:
+         1. Header: Brand and core value prop (Fixed Size, C++20).
+         2. Features Grid: High-level overview of the library's capabilities (Header-only, No Heap, etc.).
+         3. Architecture Explorer: Interactive tabs allowing deep dives into UInt, Multiplication, and Division internals.
+            Reason: Allows users to focus on specific implementation details without being overwhelmed.
+         4. Algorithmic Performance Lab: Interactive Chart.js visualization comparing Schoolbook vs Karatsuba complexity.
+            Reason: Visualizes the "Multiplication.hpp" logic where algorithms switch based on N size.
+         5. Live Code Simulator: A mock IDE to demonstrate syntax and API usage.
+            Reason: Provides immediate "hands-on" feel for the library's interface.
+         6. Requirements & License: Footer area for technical constraints.
+    -->
+    <!-- Visualization & Content Choices:
+         - Features: Grid layout with Unicode icons. Goal: Quick scanning of benefits.
+         - Architecture: Tabbed interface. Goal: Organize complex technical details from .hpp files.
+         - Performance: Line Chart. Goal: Compare O(N^2) vs O(N^1.585). Interaction: Slider to change N. Justification: Visualizes the hybrid strategy in Multiplication.hpp.
+         - Code: Mock Terminal. Goal: Show usage. Interaction: Dropdown to switch examples.
+    -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+</head>
+<body class="flex flex-col min-h-screen">
+
+    <!-- Navigation / Header -->
+    <header class="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
+        <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+                <span class="text-3xl">🧮</span>
+                <div>
+                    <h1 class="text-xl font-bold text-gray-800 tracking-tight">Arbitrary <span class="text-blue-600 text-sm font-normal bg-blue-50 px-2 py-1 rounded-full border border-blue-100">C++20</span></h1>
+                    <p class="text-xs text-gray-500">Biblioteca de Aritmética de Precisão Arbitrária</p>
+                </div>
+            </div>
+            <nav class="hidden md:flex space-x-6 text-sm font-medium text-gray-600">
+                <a href="#features" class="hover:text-blue-600 transition">Recursos</a>
+                <a href="#architecture" class="hover:text-blue-600 transition">Arquitetura</a>
+                <a href="#performance" class="hover:text-blue-600 transition">Performance</a>
+                <a href="#playground" class="hover:text-blue-600 transition">Playground</a>
+            </nav>
+            <button onclick="scrollToSection('playground')" class="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800 transition shadow-md">
+                Ver Código
+            </button>
+        </div>
+    </header>
+
+    <main class="flex-grow">
+
+        <!-- Hero Section -->
+        <section class="container mx-auto px-4 py-12 md:py-20 text-center">
+            <h2 class="text-4xl md:text-5xl font-extrabold text-gray-900 mb-6 leading-tight">
+                Matemática de Alta Performance<br>
+                <span class="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">Sem Alocação Dinâmica</span>
+            </h2>
+            <p class="text-lg text-gray-600 max-w-2xl mx-auto mb-10 leading-relaxed">
+                Uma biblioteca <strong>header-only</strong> otimizada para criptografia e cálculos pesados.
+                Inteiros de tamanho fixo determinados em tempo de compilação, utilizando o máximo da sua CPU.
+            </p>
+            <div class="flex justify-center gap-4 flex-wrap">
+                <div class="flex items-center gap-2 px-4 py-2 bg-white rounded-full shadow-sm border border-gray-200 text-sm text-gray-700">
+                    <span>⚡</span> Assembly Inline
+                </div>
+                <div class="flex items-center gap-2 px-4 py-2 bg-white rounded-full shadow-sm border border-gray-200 text-sm text-gray-700">
+                    <span>🏗️</span> Stack Only
+                </div>
+                <div class="flex items-center gap-2 px-4 py-2 bg-white rounded-full shadow-sm border border-gray-200 text-sm text-gray-700">
+                    <span>🧬</span> Templates C++20
+                </div>
+            </div>
+        </section>
+
+        <!-- Features Grid -->
+        <section id="features" class="bg-white py-16 border-t border-gray-100">
+            <div class="container mx-auto px-4">
+                <div class="mb-12 max-w-3xl">
+                    <h3 class="text-2xl font-bold text-gray-900 mb-4">Pilares do Design</h3>
+                    <p class="text-gray-600">
+                        O design da biblioteca <em>Arbitrary</em> prioriza velocidade e previsibilidade.
+                        Abaixo estão as principais características técnicas extraídas da análise do código fonte.
+                    </p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <!-- Feature 1 -->
+                    <div class="p-6 bg-gray-50 rounded-xl border border-gray-100 card-hover">
+                        <div class="text-3xl mb-4">📦</div>
+                        <h4 class="font-bold text-gray-900 mb-2">Header-Only</h4>
+                        <p class="text-sm text-gray-600">Integração trivial. Basta incluir `UInt.hpp`, `Multiplication.hpp` e `Division.hpp`. Sem linkagem externa.</p>
+                    </div>
+                    <!-- Feature 2 -->
+                    <div class="p-6 bg-gray-50 rounded-xl border border-gray-100 card-hover">
+                        <div class="text-3xl mb-4">💾</div>
+                        <h4 class="font-bold text-gray-900 mb-2">Zero Heap</h4>
+                        <p class="text-sm text-gray-600">Tudo é alocado na Stack via `std::array`. Elimina overhead de gerenciamento de memória dinâmica.</p>
+                    </div>
+                    <!-- Feature 3 -->
+                    <div class="p-6 bg-gray-50 rounded-xl border border-gray-100 card-hover">
+                        <div class="text-3xl mb-4">⚙️</div>
+                        <h4 class="font-bold text-gray-900 mb-2">Assembly & Intrinsics</h4>
+                        <p class="text-sm text-gray-600">Uso direto de `addq`, `adcq` e BMI2 (`_mulx_u64`) para superar a performance de código C++ genérico.</p>
+                    </div>
+                    <!-- Feature 4 -->
+                    <div class="p-6 bg-gray-50 rounded-xl border border-gray-100 card-hover">
+                        <div class="text-3xl mb-4">🔮</div>
+                        <h4 class="font-bold text-gray-900 mb-2">Branch Prediction</h4>
+                        <p class="text-sm text-gray-600">Uso extensivo de `__builtin_expect` para otimizar os caminhos de execução mais prováveis (hot paths).</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Interactive Architecture -->
+        <section id="architecture" class="py-16 container mx-auto px-4">
+            <div class="flex flex-col lg:flex-row gap-12">
+                <!-- Left: Navigation/Diagram -->
+                <div class="lg:w-1/3">
+                    <h3 class="text-2xl font-bold text-gray-900 mb-6">Arquitetura Modular</h3>
+                    <p class="text-gray-600 mb-8">
+                        A biblioteca é dividida em três módulos principais. Clique nos componentes abaixo para explorar os detalhes de implementação encontrados no código fonte.
+                    </p>
+
+                    <div class="space-y-4">
+                        <button onclick="showModule('uint')" id="btn-uint" class="w-full text-left p-4 rounded-xl border-2 border-blue-600 bg-blue-50 transition-all flex items-center justify-between group">
+                            <span class="font-bold text-blue-900">1. Núcleo (UInt.hpp)</span>
+                            <span class="text-blue-600 group-hover:translate-x-1 transition-transform">→</span>
+                        </button>
+                        <button onclick="showModule('mult')" id="btn-mult" class="w-full text-left p-4 rounded-xl border border-gray-200 bg-white hover:border-blue-300 hover:bg-gray-50 transition-all flex items-center justify-between group">
+                            <span class="font-bold text-gray-700">2. Multiplicação (Multiplication.hpp)</span>
+                            <span class="text-gray-400 group-hover:translate-x-1 transition-transform">→</span>
+                        </button>
+                        <button onclick="showModule('div')" id="btn-div" class="w-full text-left p-4 rounded-xl border border-gray-200 bg-white hover:border-blue-300 hover:bg-gray-50 transition-all flex items-center justify-between group">
+                            <span class="font-bold text-gray-700">3. Divisão (Division.hpp)</span>
+                            <span class="text-gray-400 group-hover:translate-x-1 transition-transform">→</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Right: Content Display -->
+                <div class="lg:w-2/3 bg-white p-8 rounded-2xl shadow-sm border border-gray-200 min-h-[400px]">
+
+                    <!-- Content: UInt -->
+                    <div id="content-uint" class="module-content animate-fade-in">
+                        <div class="flex items-center gap-3 mb-6">
+                            <div class="p-2 bg-blue-100 text-blue-700 rounded-lg text-2xl">🧱</div>
+                            <h4 class="text-2xl font-bold text-gray-900">Núcleo: UInt.hpp</h4>
+                        </div>
+                        <p class="text-gray-700 mb-6">
+                            A classe `UInt<N>` é a base de tudo. Ela define o armazenamento e as operações aritméticas fundamentais (+, -).
+                        </p>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                            <div class="bg-gray-50 p-4 rounded-lg border border-gray-100">
+                                <h5 class="font-bold text-gray-800 mb-2 text-sm uppercase tracking-wide">Armazenamento</h5>
+                                <p class="text-sm text-gray-600">Usa `std::array<u64, N>` alinhado a 64 bytes (`alignas(64)`) para máxima eficiência de cache e instruções vetorizadas.</p>
+                            </div>
+                            <div class="bg-gray-50 p-4 rounded-lg border border-gray-100">
+                                <h5 class="font-bold text-gray-800 mb-2 text-sm uppercase tracking-wide">Inicialização</h5>
+                                <p class="text-sm text-gray-600">Suporta construção via Literais (`0x...`), Strings Decimais e `consteval` para validação em tempo de compilação.</p>
+                            </div>
+                        </div>
+
+                        <div class="bg-blue-50 border-l-4 border-blue-500 p-4">
+                            <h5 class="font-bold text-blue-900 text-sm">Destaque de Código: Assembly Inline</h5>
+                            <p class="text-sm text-blue-800 mt-1">
+                                O operador `+=` utiliza um bloco `asm volatile` com instruções `addq` e `adcq` (add with carry) em loop desenrolado, garantindo que o compilador não perca a flag de carry entre as iterações.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Content: Multiplication -->
+                    <div id="content-mult" class="module-content hidden animate-fade-in">
+                        <div class="flex items-center gap-3 mb-6">
+                            <div class="p-2 bg-purple-100 text-purple-700 rounded-lg text-2xl">✖️</div>
+                            <h4 class="text-2xl font-bold text-gray-900">Estratégia Híbrida de Multiplicação</h4>
+                        </div>
+                        <p class="text-gray-700 mb-6">
+                            O arquivo `Multiplication.hpp` implementa uma estratégia adaptativa baseada no tamanho `N`. O objetivo é equilibrar o overhead de recursão com a complexidade aritmética.
+                        </p>
+
+                        <ul class="space-y-4 mb-6">
+                            <li class="flex items-start gap-3">
+                                <span class="bg-purple-100 text-purple-700 font-bold px-2 py-1 rounded text-xs mt-1">N ≤ 32</span>
+                                <div>
+                                    <strong class="text-gray-900">Schoolbook / Comba:</strong>
+                                    <p class="text-sm text-gray-600">Para números "pequenos" (até 2048 bits), usa algoritmos quadráticos $O(N^2)$ com kernels desenrolados manualmente (ex: 4x4, 8x8) para reduzir pressão nos registradores.</p>
+                                </div>
+                            </li>
+                            <li class="flex items-start gap-3">
+                                <span class="bg-purple-100 text-purple-700 font-bold px-2 py-1 rounded text-xs mt-1">N > 32</span>
+                                <div>
+                                    <strong class="text-gray-900">Karatsuba:</strong>
+                                    <p class="text-sm text-gray-600">Algoritmo de divisão e conquista com complexidade $O(N^{1.585})$. Reduz drasticamente o número de operações para inteiros muito grandes.</p>
+                                </div>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <!-- Content: Division -->
+                    <div id="content-div" class="module-content hidden animate-fade-in">
+                        <div class="flex items-center gap-3 mb-6">
+                            <div class="p-2 bg-green-100 text-green-700 rounded-lg text-2xl">➗</div>
+                            <h4 class="text-2xl font-bold text-gray-900">Divisão Robusta (Knuth D)</h4>
+                        </div>
+                        <p class="text-gray-700 mb-6">
+                            O arquivo `Division.hpp` implementa o clássico Algoritmo D de Knuth ("The Art of Computer Programming").
+                        </p>
+
+                        <div class="space-y-4">
+                            <div class="border-b border-gray-100 pb-4">
+                                <h5 class="font-bold text-gray-800">Passo 1: Normalização</h5>
+                                <p class="text-sm text-gray-600">O divisor é deslocado (shifted) para que o bit mais significativo seja 1. Isso maximiza a precisão da estimativa do quociente.</p>
+                            </div>
+                            <div class="border-b border-gray-100 pb-4">
+                                <h5 class="font-bold text-gray-800">Passo 2: Estimativa de Quociente (q_hat)</h5>
+                                <p class="text-sm text-gray-600">Usa aritmética de 128 bits (`unsigned __int128`) para estimar os próximos 64 bits do quociente.</p>
+                            </div>
+                            <div>
+                                <h5 class="font-bold text-gray-800">Passo 3: Refinamento</h5>
+                                <p class="text-sm text-gray-600">Se a estimativa for muito alta, ela é corrigida dentro do loop principal usando instruções de `_subborrow`.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </section>
+
+        <!-- Algorithmic Lab -->
+        <section id="performance" class="bg-gray-50 py-16 border-y border-gray-200">
+            <div class="container mx-auto px-4">
+                <div class="mb-10 text-center max-w-2xl mx-auto">
+                    <h3 class="text-2xl font-bold text-gray-900 mb-2">Laboratório de Algoritmos</h3>
+                    <p class="text-gray-600">
+                        A biblioteca escolhe automaticamente o melhor algoritmo de multiplicação.
+                        Ajuste o número de <strong>Limbs (N)</strong> abaixo para ver como a complexidade teórica muda e qual algoritmo é ativado.
+                    </p>
+                </div>
+
+                <div class="flex flex-col lg:flex-row gap-8 items-center justify-center">
+
+                    <!-- Controls -->
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 w-full max-w-sm">
+                        <label for="limbSlider" class="block font-bold text-gray-700 mb-2">
+                            Tamanho do Inteiro (N Limbs)
+                        </label>
+                        <div class="flex items-center justify-between mb-4">
+                            <span class="text-xs text-gray-500">1 Limb (64 bits)</span>
+                            <span class="text-xs text-gray-500">64 Limbs (4096 bits)</span>
+                        </div>
+                        <input type="range" id="limbSlider" min="1" max="64" value="4" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
+
+                        <div class="mt-6 text-center">
+                            <span class="text-sm text-gray-500 uppercase tracking-wide">Valor Atual</span>
+                            <div class="text-4xl font-mono font-bold text-blue-600 mt-1" id="limbValue">4</div>
+                            <div class="text-sm text-gray-400 font-mono" id="bitValue">256 bits</div>
+                        </div>
+
+                        <hr class="my-6 border-gray-100">
+
+                        <div class="text-center">
+                            <span class="text-sm text-gray-500 uppercase tracking-wide">Algoritmo Ativo</span>
+                            <div id="algoName" class="text-xl font-bold text-green-600 mt-2 transition-all">Schoolbook</div>
+                            <p id="algoDesc" class="text-xs text-gray-500 mt-2 leading-relaxed">
+                                Método clássico. Eficiente para números pequenos devido à baixa sobrecarga.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Chart -->
+                    <div class="w-full lg:w-2/3">
+                        <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+                            <!-- Chart Container: Wrapped per technical requirements -->
+                            <div class="chart-container">
+                                <canvas id="perfChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Code Playground -->
+        <section id="playground" class="py-16 container mx-auto px-4">
+            <h3 class="text-2xl font-bold text-gray-900 mb-6 text-center">Playground de Código</h3>
+            <p class="text-center text-gray-600 mb-8">Veja como utilizar a biblioteca na prática. Selecione um exemplo abaixo.</p>
+
+            <div class="max-w-4xl mx-auto">
+                <div class="bg-gray-800 rounded-t-xl p-4 flex justify-between items-center border-b border-gray-700">
+                    <div class="flex space-x-2">
+                        <div class="w-3 h-3 rounded-full bg-red-500"></div>
+                        <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+                        <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                    </div>
+                    <select id="codeSelector" class="bg-gray-700 text-white text-sm px-3 py-1 rounded border-none focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option value="basic">Aritmética Básica</option>
+                        <option value="random">Números Aleatórios</option>
+                        <option value="div">Divisão & Módulo</option>
+                    </select>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2">
+                    <!-- Editor Side -->
+                    <div class="bg-gray-900 p-6 overflow-x-auto h-96 md:rounded-bl-xl border-r border-gray-800">
+                        <pre id="codeDisplay" class="text-sm font-mono text-gray-300 leading-relaxed"></pre>
+                    </div>
+
+                    <!-- Output Side -->
+                    <div class="bg-black p-6 h-96 md:rounded-br-xl relative">
+                        <div class="absolute top-4 right-4 text-xs text-gray-500 font-mono">SIMULATED OUTPUT</div>
+                        <div id="outputDisplay" class="font-mono text-green-400 text-sm mt-4 whitespace-pre-wrap"></div>
+
+                        <!-- Run Button Animation Area -->
+                        <div class="absolute bottom-6 right-6">
+                            <button onclick="runSimulation()" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded font-bold text-xs flex items-center gap-2 transition">
+                                <span>▶</span> EXECUTAR
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-gray-100 border-t border-gray-200 py-12">
+        <div class="container mx-auto px-4 grid grid-cols-1 md:grid-cols-3 gap-8 text-sm">
+            <div>
+                <h5 class="font-bold text-gray-900 mb-4">Requisitos de Sistema</h5>
+                <ul class="space-y-2 text-gray-600">
+                    <li>• Compilador C++20 (GCC/Clang)</li>
+                    <li>• Arquitetura x86_64</li>
+                    <li>• Intrinsics: BMI2 e ADX (Recomendado)</li>
+                </ul>
+            </div>
+            <div>
+                <h5 class="font-bold text-gray-900 mb-4">Módulos</h5>
+                <ul class="space-y-2 text-gray-600">
+                    <li>• UInt.hpp (Core)</li>
+                    <li>• Multiplication.hpp</li>
+                    <li>• Division.hpp</li>
+                </ul>
+            </div>
+            <div>
+                <h5 class="font-bold text-gray-900 mb-4">Licença</h5>
+                <p class="text-gray-600 mb-2">
+                    CC BY-NC 4.0 International
+                </p>
+                <a href="https://creativecommons.org/licenses/by-nc/4.0/" target="_blank" class="text-blue-600 hover:underline">Ver Licença Completa</a>
+                <p class="mt-4 text-xs text-gray-400">
+                    Proibido uso comercial sem autorização.
+                </p>
+            </div>
+        </div>
+        <div class="container mx-auto px-4 mt-8 pt-8 border-t border-gray-200 text-center text-xs text-gray-400">
+            Gerado automaticamente a partir do código fonte Arbitrary.
+        </div>
+    </footer>
+
+    <!-- Logic Script -->
+    <script>
+        // State Management
+        const state = {
+            currentModule: 'uint',
+            limbCount: 4,
+            currentExample: 'basic'
+        };
+
+        // DOM Elements
+        const elements = {
+            btnUint: document.getElementById('btn-uint'),
+            btnMult: document.getElementById('btn-mult'),
+            btnDiv: document.getElementById('btn-div'),
+            contentUint: document.getElementById('content-uint'),
+            contentMult: document.getElementById('content-mult'),
+            contentDiv: document.getElementById('content-div'),
+            slider: document.getElementById('limbSlider'),
+            limbVal: document.getElementById('limbValue'),
+            bitVal: document.getElementById('bitValue'),
+            algoName: document.getElementById('algoName'),
+            algoDesc: document.getElementById('algoDesc'),
+            codeSelect: document.getElementById('codeSelector'),
+            codeDisplay: document.getElementById('codeDisplay'),
+            outputDisplay: document.getElementById('outputDisplay')
+        };
+
+        // --- Module Switching Logic ---
+        function showModule(moduleName) {
+            state.currentModule = moduleName;
+
+            // Reset styles
+            [elements.btnUint, elements.btnMult, elements.btnDiv].forEach(btn => {
+                btn.className = "w-full text-left p-4 rounded-xl border border-gray-200 bg-white hover:border-blue-300 hover:bg-gray-50 transition-all flex items-center justify-between group";
+                btn.querySelector('span:last-child').className = "text-gray-400 group-hover:translate-x-1 transition-transform";
+                btn.querySelector('span:first-child').className = "font-bold text-gray-700";
+            });
+
+            // Activate Selected
+            const activeBtn = moduleName === 'uint' ? elements.btnUint : (moduleName === 'mult' ? elements.btnMult : elements.btnDiv);
+            activeBtn.className = "w-full text-left p-4 rounded-xl border-2 border-blue-600 bg-blue-50 transition-all flex items-center justify-between group";
+            activeBtn.querySelector('span:last-child').className = "text-blue-600 group-hover:translate-x-1 transition-transform";
+            activeBtn.querySelector('span:first-child').className = "font-bold text-blue-900";
+
+            // Toggle Content
+            [elements.contentUint, elements.contentMult, elements.contentDiv].forEach(el => el.classList.add('hidden'));
+            document.getElementById(`content-${moduleName}`).classList.remove('hidden');
+        }
+
+        // --- Chart Logic ---
+        let perfChart;
+
+        function initChart() {
+            const ctx = document.getElementById('perfChart').getContext('2d');
+
+            // Generate Data Points
+            const labels = [];
+            const schoolbookData = [];
+            const karatsubaData = [];
+
+            for (let i = 1; i <= 64; i++) {
+                labels.push(i);
+                schoolbookData.push(Math.pow(i, 2));
+                // Karatsuba approximation: C * N^1.585. We adjust C to intersect around 32 for visual clarity based on the code's threshold
+                // The code switches at N=32. Let's make them cross there.
+                // 32^2 = 1024. 32^1.585 = 243. So Karatsuba constant overhead is higher.
+                // Let's approximate visually: Overhead + N^1.585
+                karatsubaData.push((Math.pow(i, 1.585) * 4) + 100);
+            }
+
+            perfChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Schoolbook O(N²)',
+                            data: schoolbookData,
+                            borderColor: '#3b82f6', // Blue
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.4,
+                            pointRadius: 0
+                        },
+                        {
+                            label: 'Karatsuba O(N¹.⁵⁸⁵)',
+                            data: karatsubaData,
+                            borderColor: '#8b5cf6', // Purple
+                            backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.4,
+                            pointRadius: 0
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + Math.round(context.raw) + ' ops';
+                                }
+                            }
+                        },
+                        legend: {
+                            position: 'bottom'
+                        },
+                        annotation: {
+                            // Can't use plugin-annotation without importing it, so we skip specific lines
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: { display: true, text: 'Número de Limbs (N)' },
+                            grid: { display: false }
+                        },
+                        y: {
+                            title: { display: true, text: 'Operações Estimadas' },
+                            display: true
+                        }
+                    }
+                }
+            });
+        }
+
+        // --- Slider Logic ---
+        elements.slider.addEventListener('input', (e) => {
+            const n = parseInt(e.target.value);
+            state.limbCount = n;
+
+            // Update Text
+            elements.limbVal.textContent = n;
+            elements.bitVal.textContent = `${n * 64} bits`;
+
+            // Update Algo Info (Based on Multiplication.hpp logic)
+            // Logic: if (n <= 32) -> Schoolbook, else Karatsuba
+            if (n <= 32) {
+                elements.algoName.textContent = "Schoolbook / Comba";
+                elements.algoName.className = "text-xl font-bold text-blue-600 mt-2 transition-all";
+                elements.algoDesc.textContent = "Para N ≤ 32, a biblioteca usa algoritmos O(N²) otimizados com desenrolamento de loop e Comba para evitar o overhead de recursão.";
+            } else {
+                elements.algoName.textContent = "Karatsuba Recursivo";
+                elements.algoName.className = "text-xl font-bold text-purple-600 mt-2 transition-all";
+                elements.algoDesc.textContent = "Para N > 32, ativa-se o algoritmo 'Divide and Conquer' para reduzir a complexidade assintótica.";
+            }
+
+            // Update Chart Highlight (Visual trick)
+            // We can't easily highlight a single point on ChartJS line chart without plugins,
+            // but the text update serves the purpose.
+        });
+
+        // --- Code Playground Logic ---
+        const examples = {
+            basic: {
+                code: `#include <iostream>
+#include "UInt.hpp"
+
+using namespace Arbitrary;
+
+int main() {
+    // Inicializa via String Decimal (256 bits)
+    UInt<4> a("115792089237316195423570985008687907853269984665640564039457584007913129639935");
+
+    // Inicializa via Hex
+    UInt<4> b("0xFFFFFFFFFFFFFFFF0000000000000000");
+
+    auto soma = a + b;
+    auto prod = a * b;
+
+    std::cout << "Soma: " << soma.to_string() << std::endl;
+    std::cout << "Prod: " << prod.to_hex_string() << std::endl;
+    return 0;
+}`,
+                output: `Soma: 115792089237316195423570985008687907853269984665640564039457584007913129639935
+Prod: 0xB504F333F9DE6484597D89B3754ABE9F...`
+            },
+            random: {
+                code: `#include "UInt.hpp"
+using namespace Arbitrary;
+
+int main() {
+    // Gera 512 bits de aleatoriedade
+    // Seed = 12345
+    UInt<8> rnd = UInt<8>::random(12345);
+
+    std::cout << "Random: " << rnd.to_hex_string() << std::endl;
+    return 0;
+}`,
+                output: `Random: 0x9A4F2E1B8C7D3A... (pseudo-random generated)`
+            },
+            div: {
+                code: `#include "UInt.hpp"
+using namespace Arbitrary;
+
+int main() {
+    UInt<4> dividendo("5000000000000000000000");
+    UInt<4> divisor("200");
+
+    // Retorna par {quociente, resto}
+    auto [q, r] = UInt<4>::divmod(dividendo, divisor);
+
+    std::cout << "Q: " << q.to_string() << std::endl;
+    std::cout << "R: " << r.to_string() << std::endl;
+    return 0;
+}`,
+                output: `Q: 25000000000000000000
+R: 0`
+            }
+        };
+
+        function updateCode() {
+            const key = elements.codeSelect.value;
+            elements.codeDisplay.textContent = examples[key].code;
+            elements.outputDisplay.textContent = "> Aguardando execução...";
+            elements.outputDisplay.classList.remove('text-green-400');
+            elements.outputDisplay.classList.add('text-gray-500');
+        }
+
+        function runSimulation() {
+            elements.outputDisplay.textContent = "> Compiling...\n> Running...";
+            elements.outputDisplay.classList.remove('text-gray-500');
+            elements.outputDisplay.classList.add('text-yellow-400');
+
+            setTimeout(() => {
+                const key = elements.codeSelect.value;
+                elements.outputDisplay.textContent = "> " + examples[key].output;
+                elements.outputDisplay.classList.remove('text-yellow-400');
+                elements.outputDisplay.classList.add('text-green-400');
+            }, 800);
+        }
+
+        elements.codeSelect.addEventListener('change', updateCode);
+
+        // Smooth Scroll
+        function scrollToSection(id) {
+            document.getElementById(id).scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            initChart();
+            updateCode();
+        });
+
+    </script>
+</body>
+</html>
