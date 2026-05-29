@@ -316,22 +316,10 @@ namespace Arbitrary {
             return *this;
         }
 
-        constexpr FORCE_INLINE UInt &operator*=(const UInt &other) noexcept {
-            if consteval {
-                UInt<N> self_copy = *this;
-                this->bits.fill(0);
-                for (u8 i = 0; i < N; ++i) {
-                    u64 y = self_copy.bits[i];
-                    if (y == 0) continue;
-                    u128 carry = 0;
-                    for (u8 j = 0; j < N - i; ++j) {
-                        u128 temp = (u128)other.bits[j] * y + this->bits[i + j] + carry;
-                        this->bits[i + j] = (u64)temp;
-                        carry = temp >> 64;
-                    }
-                }
-                return *this;
-            }
+        // Runtime dispatch — non-constexpr to prevent GCC's if consteval
+        // miscompilation (GCC 15 bug: if consteval treated as always-true
+        // in constexpr FORCE_INLINE functions).
+        FORCE_INLINE UInt &mul_runtime(const UInt &other) noexcept {
             if constexpr (N == 1) {
                 bits[0] *= other.bits[0];
                 return *this;
@@ -359,23 +347,22 @@ namespace Arbitrary {
                         "xorl   %k[r2], %k[r2]\n\t"
 
                         "movq   %[b2], %%r10\n\t"
+                        "imulq  %[a0], %%r10\n\t"
                         "movq   %[b1], %%rdx\n\t"
                         "mulxq  %[a0], %%r11, %%rcx\n\t"
                         "addq   %%r11, %[r1]\n\t"
                         "adcq   %%rcx, %[r2]\n\t"
 
+                        "movq   %[a2], %%rcx\n\t"
                         "movq   %[a1], %%rdx\n\t"
-                        "mulxq  %[b0], %%r11, %%rcx\n\t"
-                        "movq   %[a2], %%r9\n\t"
+                        "mulxq  %[b0], %%r11, %%r9\n\t"
+                        "imulq  %[b0], %%rcx\n\t"
                         "addq   %%r11, %[r1]\n\t"
-                        "adcq   %%rcx, %[r2]\n\t"
+                        "adcq   %%r9, %[r2]\n\t"
 
-                        "imulq  %[a0], %%r10\n\t"
-                        "movq   %[a1], %%r11\n\t"
-                        "imulq  %[b1], %%r11\n\t"
-                        "imulq  %[b0], %%r9\n\t"
-                        "addq   %%r11, %%r10\n\t"
-                        "addq   %%r9, %%r10\n\t"
+                        "imulq  %[b1], %%rdx\n\t"
+                        "addq   %%rdx, %%r10\n\t"
+                        "addq   %%rcx, %%r10\n\t"
                         "addq   %%r10, %[r2]\n\t"
 
                         : [r0] "=&r" (r0), [r1] "=&r" (r1), [r2] "=&r" (r2)
@@ -418,6 +405,27 @@ namespace Arbitrary {
                 copy_n(buf, N, &bits[0]);
             }
             return *this;
+        }
+
+        // Consteval-only schoolbook (public method for compile-time multiplication)
+        constexpr UInt &mul_consteval(const UInt &other) noexcept {
+            UInt<N> self_copy = *this;
+            this->bits.fill(0);
+            for (u8 i = 0; i < N; ++i) {
+                u64 y = self_copy.bits[i];
+                if (y == 0) continue;
+                u128 carry = 0;
+                for (u8 j = 0; j < N - i; ++j) {
+                    u128 temp = (u128)other.bits[j] * y + this->bits[i + j] + carry;
+                    this->bits[i + j] = (u64)temp;
+                    carry = temp >> 64;
+                }
+            }
+            return *this;
+        }
+
+        FORCE_INLINE UInt &operator*=(const UInt &other) noexcept {
+            return mul_runtime(other);
         }
 
         constexpr FORCE_INLINE UInt &operator*=(u64 val) noexcept {

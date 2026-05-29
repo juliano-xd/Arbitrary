@@ -44,7 +44,8 @@ Compiler flags: `-std=c++20 -O3 -march=native -mbmi2 -madx`
   - **Mul**: N=1 direct, N=2 schoolbook 2×2, N=3 fixed 3×3, N=4–6 schoolbook/Comba, N=8 split-block Toom-style 4×4, N≤16 schoolbook, N>16 Karatsuba
   - **Div**: N=1 single-limb fast, N≤16 `DivisionFixed`, N≤64 Knuth D, larger recursive divide-and-conquer
 - Heavy use of `_mulx_u64` (BMI2), `_addcarry_u64`/`_subborrow_u64` (ADX), inline asm with `.rept` unrolling for add/sub
-- `consteval` paths use `unsigned __int128` fallback; runtime paths use intrinsics/inline asm
+- `operator*` is non-constexpr (calls `mul_runtime()` for asm dispatch). Compile-time
+  multiplication available via `mul_consteval()` (public, constexpr schoolbook)
 
 ## Limitations
 
@@ -70,6 +71,22 @@ Key choices:
 - Output written directly to `bits[]` (no temp buffer, no `copy_n`)
 
 Performance: ~6.8 ns mul, ~4.4 ns square, ~4.0 ns per limb (mul), ~2.2 ns/limb (square)
+
+## Verification note
+
+Correctness comparisons MUST use a reference implementation that propagates carry per product
+pair (standard schoolbook), NOT an outer-product accumulator (`u128 temp[2*N]` with column-wise
+sum). The latter overflows `u128` for columns with 2+ products (any N ≥ 2), producing false positives.
+
+## GCC 15 `if consteval` miscompilation (historical)
+
+GCC 15 has a bug where `if consteval` is treated as always-true inside `constexpr FORCE_INLINE`
+functions whose body is "simple enough" for the compiler to constant-fold. This caused the
+compile-time schoolbook fallback to be selected at runtime.
+
+**Resolution:** `operator*` is non-constexpr (calls `operator*=` → `mul_runtime()` with asm
+dispatch). `mul_consteval()` is provided as a public method for users who need compile-time
+multiplication. This avoids `if consteval` entirely, so the GCC bug cannot trigger.
 
 ## Historical bugs (mul dispatch aliasing)
 
