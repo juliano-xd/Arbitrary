@@ -309,8 +309,10 @@ namespace Arbitrary {
             return *this;
         }
 
-        constexpr FORCE_INLINE UInt &operator-=(const u64 val) noexcept { //melhor forma. testado!
-            if ((bits[0] -= val) > val)[[unlikely]] {
+        constexpr FORCE_INLINE UInt &operator-=(const u64 val) noexcept {
+            u64 old = bits[0];
+            bits[0] -= val;
+            if (bits[0] > old) [[unlikely]] {
                 for (u8 i = 1; i < N; ++i) {
                     if (--bits[i] != -1ull) [[likely]] return *this;
                 }
