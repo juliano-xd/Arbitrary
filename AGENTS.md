@@ -53,6 +53,24 @@ Compiler flags: `-std=c++20 -O3 -march=native -mbmi2 -madx`
 - License is **CC BY-NC 4.0** (non-commercial only)
 - No `.gitignore` exists; take care not to commit `benchmark/build/` artifacts
 
+## N=3 multiplication optimization
+
+N=3 uses inline asm directly in the dispatch (register input operands, no `"memory"` clobber):
+
+```
+3 MULX (k=0,k=1) + 3 IMUL (k=2, non-widening) + 2 ADC + 2 ADD + 3 ADD (tree)
+```
+
+Key choices:
+- k=1 products use MULX (widening) + ADC carry chain
+- k=2 products use IMUL (non-widening) since hi goes to col 3 (truncated)
+- k=2 operands preloaded during k=1 to hide load latency
+- Tree reduction for k=2 sum: (p0+p1) and (p2+r2) computed in parallel
+- Register-only constraints (`"rm"`) avoid the need for `"memory"` clobber
+- Output written directly to `bits[]` (no temp buffer, no `copy_n`)
+
+Performance: ~6.8 ns mul, ~4.4 ns square, ~4.0 ns per limb (mul), ~2.2 ns/limb (square)
+
 ## Historical bugs (mul dispatch aliasing)
 
 All runtime dispatch paths in `operator*=` previously passed `&bits[0]` as both `res` and `a`
@@ -60,7 +78,6 @@ to kernel functions. This is **broken** for any kernel that zeroes `res` before 
 (which includes `std::fill_n`-based schoolbook and squaring kernels).
 
 **Affected paths (fixed 2026-05-28):**
-- N=3: `mul_schoolbook_truncated_fixed_3x3` — also has `res[0]` written before `a[0]` re-read
 - N=9-16: `mul_schoolbook_truncated_fixed<N>` / `square_schoolbook_truncated_fixed<N>`
 - N=17-32: via `mul_truncated_fixed` / `square_truncated_fixed` internal fallback to schoolbook
 

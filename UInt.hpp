@@ -350,8 +350,42 @@ namespace Arbitrary {
                     bits[0] = lo_ab;
                     bits[1] = t1 + hi_ab + t2;
                 } else if constexpr (N == 3) {
-                     Multiplication::mul_schoolbook_truncated_fixed_3x3(p_res, &bits[0], &other.bits[0]);
-                     copy_n(p_res, N, &bits[0]);
+                    u64 a0 = bits[0], a1 = bits[1], a2 = bits[2];
+                    u64 b0 = other.bits[0], b1 = other.bits[1], b2 = other.bits[2];
+                    u64 r0, r1, r2;
+                    __asm__ volatile (
+                        "movq   %[b0], %%rdx\n\t"
+                        "mulxq  %[a0], %[r0], %[r1]\n\t"
+                        "xorl   %k[r2], %k[r2]\n\t"
+
+                        "movq   %[b2], %%r10\n\t"
+                        "movq   %[b1], %%rdx\n\t"
+                        "mulxq  %[a0], %%r11, %%rcx\n\t"
+                        "addq   %%r11, %[r1]\n\t"
+                        "adcq   %%rcx, %[r2]\n\t"
+
+                        "movq   %[a1], %%rdx\n\t"
+                        "mulxq  %[b0], %%r11, %%rcx\n\t"
+                        "movq   %[a2], %%r9\n\t"
+                        "addq   %%r11, %[r1]\n\t"
+                        "adcq   %%rcx, %[r2]\n\t"
+
+                        "imulq  %[a0], %%r10\n\t"
+                        "movq   %[a1], %%r11\n\t"
+                        "imulq  %[b1], %%r11\n\t"
+                        "imulq  %[b0], %%r9\n\t"
+                        "addq   %%r11, %%r10\n\t"
+                        "addq   %%r9, %%r10\n\t"
+                        "addq   %%r10, %[r2]\n\t"
+
+                        : [r0] "=&r" (r0), [r1] "=&r" (r1), [r2] "=&r" (r2)
+                        : [a0] "rm" (a0), [a1] "rm" (a1), [a2] "rm" (a2),
+                          [b0] "rm" (b0), [b1] "rm" (b1), [b2] "rm" (b2)
+                        : "rdx", "r9", "r10", "r11", "rcx", "cc"
+                    );
+                    bits[0] = r0;
+                    bits[1] = r1;
+                    bits[2] = r2;
                 } else if constexpr (N == 8) {
                      Multiplication::mul_split_truncated_fixed_8(p_res, &bits[0], &other.bits[0]);
                      copy_n(p_res, N, &bits[0]);

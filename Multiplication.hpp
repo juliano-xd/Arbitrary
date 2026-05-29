@@ -364,44 +364,6 @@ namespace Multiplication {
         r1 += a0 * b1; // Otimizado!
         r1 += a1 * b0; // Otimizado!
     }
-    // Specialized truncated 3x3 — inline asm (fastest variant)
-    __attribute__((always_inline))
-    inline void mul_schoolbook_truncated_fixed_3x3(u64 * __restrict__ res, const u64 * __restrict__ a, const u64 * __restrict__ b) noexcept {
-        u64 r0, r1, r2;
-        __asm__ volatile (
-            "movq   (%[b]), %%rdx\n\t"
-            "mulxq  (%[a]), %[r0], %[r1]\n\t"
-            "xorl   %k[r2], %k[r2]\n\t"
-
-            "movq   16(%[b]), %%r10\n\t"
-            "movq   8(%[b]), %%rdx\n\t"
-            "mulxq  (%[a]), %%r11, %%rcx\n\t"
-            "addq   %%r11, %[r1]\n\t"
-            "adcq   %%rcx, %[r2]\n\t"
-
-            "movq   8(%[a]), %%rdx\n\t"
-            "mulxq  (%[b]), %%r11, %%rcx\n\t"
-            "movq   16(%[a]), %%r9\n\t"
-            "addq   %%r11, %[r1]\n\t"
-            "adcq   %%rcx, %[r2]\n\t"
-
-            "imulq  (%[a]), %%r10\n\t"
-            "movq   8(%[a]), %%r11\n\t"
-            "imulq  8(%[b]), %%r11\n\t"
-            "imulq  (%[b]), %%r9\n\t"
-            "addq   %%r11, %%r10\n\t"
-            "addq   %%r9, %%r10\n\t"
-            "addq   %%r10, %[r2]\n\t"
-
-            : [r0] "=&r" (r0), [r1] "=&r" (r1), [r2] "=&r" (r2)
-            : [a] "r" (a), [b] "r" (b)
-            : "rdx", "r9", "r10", "r11", "rcx", "cc", "memory"
-        );
-        res[0] = r0;
-        res[1] = r1;
-        res[2] = r2;
-    }
-
     // Specialized truncated 4x4
     __attribute__((always_inline))
     inline void mul_schoolbook_truncated_fixed_4x4(u64 * __restrict__ res, const u64 * __restrict__ a, const u64 * __restrict__ b) noexcept {
