@@ -41,6 +41,9 @@ Arbitrary/
 ├── UInt.hpp                 # Tipo inteiro principal + operadores aritméticos
 ├── Multiplication.hpp       # Algoritmos de multiplicação (Schoolbook, Comba, Karatsuba)
 ├── Division.hpp             # Algoritmos de divisão (Knuth D, divisão recursiva)
+├── benchmark/
+│   ├── CMakeLists.txt       # Build dos benchmarks (usa Google Benchmark)
+│   └── bench_arithmetic.cpp # Benchmarks de todas as operações aritméticas
 ├── docs/
 │   └── index.html           # Documentação interativa
 └── LICENCE                  # CC BY-NC 4.0
@@ -48,13 +51,7 @@ Arbitrary/
 
 ### UInt\<N\>
 
-O tipo central é `Arbitrary::UInt<N>`, onde `N` é o número de _limbs_ de 64 bits (valor `uint8_t` > 0).
-
-| `N` | Armazenamento interno |
-|-----|----------------------|
-| 1   | `u64`                |
-| 2   | `unsigned __int128`  |
-| ≥3  | `std::array<u64, N>` |
+O tipo central é `Arbitrary::UInt<N>`, onde `N` é o número de _limbs_ de 64 bits (valor `uint8_t` > 0). O armazenamento interno é sempre `std::array<u64, N>`.
 
 ### Multiplicação
 
@@ -149,6 +146,40 @@ int main() {
 | `is_zero()` | Verifica se é zero |
 | `static random(seed)` | Gera número aleatório (xorshift64*) |
 | `static divmod(a, b)` | Retorna par {quociente, resto} |
+
+---
+
+## Benchmarks
+
+O diretório `benchmark/` contém benchmarks usando [Google Benchmark](https://github.com/google/benchmark) para todas as operações da biblioteca. Para compilar e executar:
+
+```bash
+cd benchmark
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+cmake --build . -j$(nproc)
+./bench_arithmetic
+```
+
+### Resultados de desempenho (CPU x86_64 @ 4.4 GHz, GCC 15, C++20)
+
+| Operação | N=1 | N=4 | N=16 | N=64 | N=128 |
+|----------|-----|-----|------|------|-------|
+| Adição | 9.7 ns | 7.5 ns | 24.4 ns | 132 ns | 275 ns |
+| Subtração | 10.7 ns | 15.4 ns | 34.1 ns | 152 ns | 300 ns |
+| Multiplicação | 1.95 ns | 16.2 ns | 23.6 ns | 2495 ns | 7369 ns |
+| Multiplicação (por u64) | — | 5.38 ns | 22.3 ns | 103 ns | — |
+| Divisão | 10.8 ns | 36.2 ns | 98.6 ns | — | — |
+| divmod | 9.79 ns | 37.3 ns | 95.8 ns | — | — |
+| Squaring | 1.19 ns | 14.0 ns | 12.2 ns | 2385 ns | 6980 ns |
+| to_string | 168 ns | 436 ns | 2424 ns | 32451 ns | — |
+| to_hex_string | 170 ns | 256 ns | 601 ns | 2101 ns | — |
+| from_string (hex) | 34.6 ns | 128 ns | 503 ns | 2040 ns | — |
+| Random | 3.83 ns | 11.9 ns | 52.5 ns | 114 ns |
+
+- N = número de limbs de 64 bits (ex: N=64 → 4096 bits)
+- Tempos em nanossegundos (ns)
+- Compilado com `-O3 -march=native -mbmi2 -madx`
 
 ---
 

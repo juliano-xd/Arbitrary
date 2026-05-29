@@ -79,6 +79,12 @@ namespace Arbitrary {
 
         constexpr UInt(UInt &&o) noexcept = default;
 
+        constexpr UInt(u64 value) noexcept {
+            bits[0] = value;
+            if constexpr (N > 1)
+                for (u8 i = 1; i < N; ++i) bits[i] = 0;
+        }
+
         constexpr explicit UInt(string_view sv) {
             if (sv.empty()) return;
             if (sv.front() == '-') throw invalid_argument("Negative values not supported in UInt");
@@ -127,30 +133,20 @@ namespace Arbitrary {
             }
         }
 
-        template <typename... Args> requires (sizeof...(Args) <= N)
+        template <typename... Args> requires (sizeof...(Args) == N && (std::is_convertible_v<Args, u64> && ...))
         constexpr UInt(Args... args) noexcept {
-            if constexpr (N == 1){
-                bits = (static_cast<u64>(args), ...);
-            }else if constexpr(N == 2){
-                u64 parts[2] = { static_cast<u64>(args)... };
-                bits = (static_cast<u128>(parts[1]) << 64) | parts[0];
-            }else{
-                bits = {static_cast<u64>(args)...};
-            }
+            u64 values[] = { static_cast<u64>(args)... };
+            for (u8 i = 0; i < N; ++i)
+                bits[i] = values[i];
         }
 
 
         constexpr UInt &operator=(const UInt &o) noexcept = default;
         constexpr UInt &operator=(UInt &&o) noexcept = default;
         constexpr FORCE_INLINE UInt &operator=(u64 o) noexcept {
-            if constexpr (N == 1) {
-                bits = o;
-            } else if constexpr (N == 2) {
-                bits = (u128)o;
-            } else {
-                bits.fill(0);
-                bits[0] = o;
-            }
+            bits[0] = o;
+            if constexpr (N > 1)
+                for (u8 i = 1; i < N; ++i) bits[i] = 0;
             return *this;
         }
 
@@ -345,13 +341,17 @@ namespace Arbitrary {
                 if constexpr (N == 1) {
                     bits[0] *= other.bits[0];
                 } else if constexpr (N == 2) {
-                    u64 r1 = bits[1] * other.bits[0];
-                    u64 r2 = bits[0] * other.bits[1];
-                    u128 r3 = static_cast<u128>(bits[0]) * other.bits[0];
-                    bits[0] = r3;
-                    bits[1] = (r1 + r2 + static_cast<u64>(r3>>64));
+                    u64 a0 = bits[0], a1 = bits[1];
+                    u64 b0 = other.bits[0], b1 = other.bits[1];
+                    u64 lo_ab, hi_ab;
+                    lo_ab = _mulx_u64(a0, b0, &hi_ab);
+                    u64 t1 = a0 * b1;
+                    u64 t2 = a1 * b0;
+                    bits[0] = lo_ab;
+                    bits[1] = t1 + hi_ab + t2;
                 } else if constexpr (N == 3) {
-                    Multiplication::mul_schoolbook_truncated_fixed_3x3(&bits[0], &bits[0], &other.bits[0]);
+                     Multiplication::mul_schoolbook_truncated_fixed_3x3(p_res, &bits[0], &other.bits[0]);
+                     copy_n(p_res, N, &bits[0]);
                 } else if constexpr (N == 8) {
                      Multiplication::mul_split_truncated_fixed_8(p_res, &bits[0], &other.bits[0]);
                      copy_n(p_res, N, &bits[0]);
@@ -364,20 +364,24 @@ namespace Arbitrary {
                 }
 
             } else if constexpr (N <= 16) {
+                u64 buf[N];
                 if (this == &other) {
-                     Multiplication::square_schoolbook_truncated_fixed<N>(&bits[0], &bits[0]);
+                     Multiplication::square_schoolbook_truncated_fixed<N>(buf, &bits[0]);
                 } else {
-                     Multiplication::mul_schoolbook_truncated_fixed<N>(&bits[0], &bits[0],
+                     Multiplication::mul_schoolbook_truncated_fixed<N>(buf, &bits[0],
                                              &other.bits[0]);
                 }
+                copy_n(buf, N, &bits[0]);
             } else {
                 alignas(64) u64 tmp[8 * N + 1000];
+                alignas(64) u64 buf[N];
                 if (this == &other) {
-                    Multiplication::square_truncated_fixed<N>(&bits[0], &bits[0], tmp);
+                    Multiplication::square_truncated_fixed<N>(buf, &bits[0], tmp);
                 } else {
-                    Multiplication::mul_truncated_fixed<N>(&bits[0], &bits[0],
+                    Multiplication::mul_truncated_fixed<N>(buf, &bits[0],
                                             &other.bits[0], tmp);
                 }
+                copy_n(buf, N, &bits[0]);
             }
             return *this;
         }

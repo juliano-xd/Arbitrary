@@ -364,51 +364,40 @@ namespace Multiplication {
         r1 += a0 * b1; // Otimizado!
         r1 += a1 * b0; // Otimizado!
     }
-    // Specialized truncated 3x3
+    // Specialized truncated 3x3 — inline asm (fastest variant)
     __attribute__((always_inline))
-    inline void mul_schoolbook_truncated_fixed_3x3(u64 * res, const u64 * a, const u64 * b) noexcept {
-        u64 r0 = 0, r1 = 0, r2 = 0;
+    inline void mul_schoolbook_truncated_fixed_3x3(u64 * __restrict__ res, const u64 * __restrict__ a, const u64 * __restrict__ b) noexcept {
+        u64 r0, r1, r2;
+        __asm__ volatile (
+            "movq   (%[b]), %%rdx\n\t"
+            "mulxq  (%[a]), %[r0], %[r1]\n\t"
+            "xorl   %k[r2], %k[r2]\n\t"
 
-        // k=0: a0b0
-        {
-            u64 lo, hi;
-            lo = _mulx_u64(a[0], b[0], &hi);
-            r0 = lo;
-            r1 = hi;
-        }
+            "movq   16(%[b]), %%r10\n\t"
+            "movq   8(%[b]), %%rdx\n\t"
+            "mulxq  (%[a]), %%r11, %%rcx\n\t"
+            "addq   %%r11, %[r1]\n\t"
+            "adcq   %%rcx, %[r2]\n\t"
 
-        // k=1: a0b1 + a1b0
-        {
-            u64 lo, hi;
-            unsigned char c = 0;
+            "movq   8(%[a]), %%rdx\n\t"
+            "mulxq  (%[b]), %%r11, %%rcx\n\t"
+            "movq   16(%[a]), %%r9\n\t"
+            "addq   %%r11, %[r1]\n\t"
+            "adcq   %%rcx, %[r2]\n\t"
 
-            lo = _mulx_u64(a[0], b[1], &hi);
-            c = _addcarry_u64(c, r1, lo, &r1);
-            c = _addcarry_u64(c, r2, hi, &r2);
+            "imulq  (%[a]), %%r10\n\t"
+            "movq   8(%[a]), %%r11\n\t"
+            "imulq  8(%[b]), %%r11\n\t"
+            "imulq  (%[b]), %%r9\n\t"
+            "addq   %%r11, %%r10\n\t"
+            "addq   %%r9, %%r10\n\t"
+            "addq   %%r10, %[r2]\n\t"
 
-            c = 0;
-            lo = _mulx_u64(a[1], b[0], &hi);
-            c = _addcarry_u64(c, r1, lo, &r1);
-            c = _addcarry_u64(c, r2, hi, &r2);
-        }
+            : [r0] "=&r" (r0), [r1] "=&r" (r1), [r2] "=&r" (r2)
+            : [a] "r" (a), [b] "r" (b)
+            : "rdx", "r9", "r10", "r11", "rcx", "cc", "memory"
+        );
         res[0] = r0;
-
-        // k=2: a0b2 + a1b1 + a2b0
-        {
-            u64 lo, hi;
-            unsigned char c = 0;
-
-            lo = _mulx_u64(a[0], b[2], &hi);
-            c = _addcarry_u64(c, r2, lo, &r2);
-
-            c = 0;
-            lo = _mulx_u64(a[1], b[1], &hi);
-            c = _addcarry_u64(c, r2, lo, &r2);
-
-            c = 0;
-            lo = _mulx_u64(a[2], b[0], &hi);
-            c = _addcarry_u64(c, r2, lo, &r2);
-        }
         res[1] = r1;
         res[2] = r2;
     }

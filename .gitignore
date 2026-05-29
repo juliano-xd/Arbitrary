@@ -1,0 +1,13 @@
+# Build artifacts
+benchmark/build/
+*.o
+*.a
+*.so
+
+# Compiled test binaries
+/tmp/opencode/
+
+# Editor backup files
+*.old
+*.new
+*.bak
