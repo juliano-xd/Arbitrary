@@ -7,7 +7,7 @@ C++20 arbitrary-precision unsigned integer library. x86_64 only (BMI2 + ADX intr
 ```
 UInt.hpp               # Core type Arbitrary::UInt<N> + all arithmetic operators
 Multiplication.hpp     # Multiplication algorithms (schoolbook, Comba, Karatsuba)
-Division.hpp           # Division algorithms (Knuth D, recursive, DivisionFixed)
+Division.hpp           # Division algorithms (Knuth D, recursive, div_fixed)
 benchmark/             # Google Benchmark suite (CMake project, untracked)
 docs/index.html        # Interactive docs (Tailwind + Chart.js)
 ```
@@ -42,7 +42,7 @@ Compiler flags: `-std=c++20 -O3 -march=native -mbmi2 -madx`
 - `UInt<N>`: N limbs of `uint64_t`, aligned to 64 bytes. N is `uint8_t`, must be > 0.
 - Arithmetic dispatch is template-based on N at compile time. Key paths:
   - **Mul**: N=1 direct, N=2 schoolbook 2×2, N=3 fixed 3×3, N=4–6 schoolbook/Comba, N=8 split-block Toom-style 4×4, N≤16 schoolbook, N>16 Karatsuba
-  - **Div**: N=1 single-limb fast, N≤16 `DivisionFixed`, N≤64 Knuth D, larger recursive divide-and-conquer
+  - **Div**: N=1 single-limb fast, N≤16 `div_fixed`, N≤64 Knuth D, larger recursive divide-and-conquer
 - Heavy use of `_mulx_u64` (BMI2), `_addcarry_u64`/`_subborrow_u64` (ADX), inline asm with `.rept` unrolling for add/sub
 - `operator*` is non-constexpr (calls `mul_runtime()` for asm dispatch). Compile-time
   multiplication available via `mul_consteval()` (public, constexpr schoolbook)

@@ -519,16 +519,178 @@ namespace Arbitrary {
         [[nodiscard]] FORCE_INLINE constexpr static UInt<N> random(const u64 seed = 0) noexcept;
         [[nodiscard]] static constexpr pair<UInt<N>, UInt<N>> divmod(UInt<N> u, UInt<N> v);
 
-        constexpr FORCE_INLINE UInt<N> &operator/=(const UInt<N> &other) {
+        FORCE_INLINE UInt<N> &operator/=(const UInt<N> &other) {
+            if constexpr (N == 2) {
+                u64 u0 = bits[0], u1 = bits[1];
+                u64 v0 = other.bits[0], v1 = other.bits[1];
+
+                if (v1 == 0 && v0 == 0) [[unlikely]]
+                    throw domain_error("Division by zero");
+
+                if (v1 == 0) [[unlikely]] {
+                    u64 q1, r1;
+                    __asm__("divq %[v]" : "=a"(q1), "=d"(r1) : "a"(u1), "d"(0), [v]"rm"(v0) : "cc");
+                    u64 q0;
+                    __asm__("divq %[v]" : "=a"(q0), "=d"(r1) : "a"(u0), "d"(r1), [v]"rm"(v0) : "cc");
+                    bits[0] = q0; bits[1] = q1;
+                    return *this;
+                }
+
+                if (u1 < v1 || (u1 == v1 && u0 < v0)) [[unlikely]] {
+                    bits[0] = 0; bits[1] = 0;
+                    return *this;
+                }
+
+                int shift = __builtin_clzll(v1);
+
+                if (shift == 0) [[likely]] {
+                    unsigned char b = 0;
+                    b = _subborrow_u64(b, u0, v0, &u0);
+                    b = _subborrow_u64(b, u1, v1, &u1);
+                    bits[0] = 1;
+                    bits[1] = 0;
+                    return *this;
+                }
+
+                u64 v1n = (v1 << shift) | (v0 >> (64 - shift));
+                u64 v0n = v0 << shift;
+                u64 u2n = u1 >> (64 - shift);
+                u64 u1n = (u1 << shift) | (u0 >> (64 - shift));
+                u64 u0n = u0 << shift;
+
+                u64 q0;
+                u128 r_hat;
+                {
+                    u64 rl;
+                    __asm__("divq %[v1n]"
+                        : "=a"(q0), "=d"(rl)
+                        : "a"(u1n), "d"(u2n), [v1n]"rm"(v1n)
+                        : "cc");
+                    r_hat = rl;
+                }
+
+                u128 p0 = (u128)q0 * v0n;
+
+                if (p0 > ((r_hat << 64) | u0n)) {
+                    q0--;
+                    r_hat += v1n;
+                    p0 = (u128)q0 * v0n;
+                    if (r_hat < v1n && p0 > ((r_hat << 64) | u0n)) {
+                        q0--;
+                        p0 = (u128)q0 * v0n;
+                    }
+                }
+
+                {
+                    u128 p1 = (u128)q0 * v1n + (p0 >> 64);
+                    unsigned char b = 0;
+                    b = _subborrow_u64(b, u0n, (u64)p0, &u0n);
+                    b = _subborrow_u64(b, u1n, (u64)p1, &u1n);
+                    b = _subborrow_u64(b, u2n, p1 >> 64, &u2n);
+
+                    if (b) [[unlikely]] {
+                        q0--;
+                        unsigned char c = 0;
+                        c = _addcarry_u64(c, u0n, v0n, &u0n);
+                        c = _addcarry_u64(c, u1n, v1n, &u1n);
+                    }
+                }
+
+                bits[0] = q0;
+                bits[1] = 0;
+                return *this;
+            }
             *this = divmod(*this, other).first;
             return *this;
         }
-        constexpr FORCE_INLINE UInt<N> &operator%=(const UInt<N> &other) {
+        FORCE_INLINE UInt<N> &operator%=(const UInt<N> &other) {
             if constexpr(N == 1){
                 bits %= other.bits;
-            }else {
-                *this = divmod(*this, other).second;
+                return *this;
             }
+            if constexpr (N == 2) {
+                u64 u0 = bits[0], u1 = bits[1];
+                u64 v0 = other.bits[0], v1 = other.bits[1];
+
+                if (v1 == 0 && v0 == 0) [[unlikely]]
+                    throw domain_error("Division by zero");
+
+                if (v1 == 0) [[unlikely]] {
+                    u64 r1;
+                    __asm__("divq %[v]" : "=a"(r1), "=d"(r1) : "a"(u1), "d"(0), [v]"rm"(v0) : "cc");
+                    u64 r0;
+                    __asm__("divq %[v]" : "=a"(r0), "=d"(r0) : "a"(u0), "d"(r1), [v]"rm"(v0) : "cc");
+                    bits[0] = r0; bits[1] = 0;
+                    return *this;
+                }
+
+                if (u1 < v1 || (u1 == v1 && u0 < v0)) [[unlikely]]
+                    return *this;
+
+                int shift = __builtin_clzll(v1);
+
+                if (shift == 0) [[likely]] {
+                    unsigned char b = 0;
+                    b = _subborrow_u64(b, u0, v0, &u0);
+                    b = _subborrow_u64(b, u1, v1, &u1);
+                    bits[0] = u0;
+                    bits[1] = u1;
+                    return *this;
+                }
+
+                u64 v1n = (v1 << shift) | (v0 >> (64 - shift));
+                u64 v0n = v0 << shift;
+                u64 u2n = u1 >> (64 - shift);
+                u64 u1n = (u1 << shift) | (u0 >> (64 - shift));
+                u64 u0n = u0 << shift;
+
+                u64 q0;
+                u128 r_hat;
+                {
+                    u64 rl;
+                    __asm__("divq %[v1n]"
+                        : "=a"(q0), "=d"(rl)
+                        : "a"(u1n), "d"(u2n), [v1n]"rm"(v1n)
+                        : "cc");
+                    r_hat = rl;
+                }
+
+                u128 p0 = (u128)q0 * v0n;
+
+                if (p0 > ((r_hat << 64) | u0n)) {
+                    q0--;
+                    r_hat += v1n;
+                    p0 = (u128)q0 * v0n;
+                    if (r_hat < v1n && p0 > ((r_hat << 64) | u0n)) {
+                        q0--;
+                        p0 = (u128)q0 * v0n;
+                    }
+                }
+
+                {
+                    u128 p1 = (u128)q0 * v1n + (p0 >> 64);
+                    unsigned char b = 0;
+                    b = _subborrow_u64(b, u0n, (u64)p0, &u0n);
+                    b = _subborrow_u64(b, u1n, (u64)p1, &u1n);
+                    b = _subborrow_u64(b, u2n, p1 >> 64, &u2n);
+
+                    if (b) [[unlikely]] {
+                        unsigned char c = 0;
+                        c = _addcarry_u64(c, u0n, v0n, &u0n);
+                        c = _addcarry_u64(c, u1n, v1n, &u1n);
+                    }
+                }
+
+                if (shift) {
+                    bits[0] = (u0n >> shift) | (u1n << (64 - shift));
+                    bits[1] = (u1n >> shift) | (u2n << (64 - shift));
+                } else {
+                    bits[0] = u0n;
+                    bits[1] = u1n;
+                }
+                return *this;
+            }
+            *this = divmod(*this, other).second;
             return *this;
         }
         [[nodiscard]] constexpr FORCE_INLINE UInt<N> operator%(const UInt<N> &other) const {
