@@ -374,15 +374,98 @@ namespace Arbitrary {
                     bits[1] = r1;
                     bits[2] = r2;
                 } else if constexpr (N == 8) {
-                     Multiplication::mul_split_truncated_fixed_8(p_res, &bits[0], &other.bits[0]);
+                     if (this == &other) {
+                         Multiplication::square_schoolbook_truncated_fixed<8>(p_res, &bits[0]);
+                     } else {
+                         Multiplication::mul_split_truncated_fixed_8(p_res, &bits[0], &other.bits[0]);
+                     }
                      copy_n(p_res, N, &bits[0]);
-                } else if constexpr (N >= 5 && N <= 6) {
-                     Multiplication::mul_comba_truncated_fixed<N>(p_res, &bits[0], &other.bits[0]);
-                     copy_n(p_res, N, &bits[0]);
-                } else {
-                     Multiplication::mul_schoolbook_truncated_fixed<N>(p_res, &bits[0], &other.bits[0]);
-                     copy_n(p_res, N, &bits[0]);
-                }
+                 } else if constexpr (N == 4) {
+                    u64 a0 = bits[0], a1 = bits[1], a2 = bits[2], a3 = bits[3];
+                    u64 b0 = other.bits[0], b1 = other.bits[1], b2 = other.bits[2], b3 = other.bits[3];
+                    u64 r0, r1, r2, r3;
+                    __asm__ volatile (
+                        // Load a-values into caller-saved regs
+                        "movq   %[a0], %%r8\n\t"
+                        "movq   %[a1], %%r9\n\t"
+                        "movq   %[a2], %%r10\n\t"
+                        "movq   %[a3], %%r11\n\t"
+
+                        // Zero accumulators
+                        "xorl   %k[r0], %k[r0]\n\t"
+                        "xorl   %k[r1], %k[r1]\n\t"
+                        "xorl   %k[r2], %k[r2]\n\t"
+                        "xorl   %k[r3], %k[r3]\n\t"
+
+                        // Row 0: a0 * b[0..2]  (rdx = a0)
+                        "movq   %%r8, %%rdx\n\t"
+                        "mulxq  %[b0], %%rcx, %%rsi\n\t"
+                        "addq   %%rcx, %[r0]\n\t"
+                        "adcq   %%rsi, %[r1]\n\t"
+                        "adcq   $0, %[r2]\n\t"
+
+                        "mulxq  %[b1], %%rcx, %%rsi\n\t"
+                        "addq   %%rcx, %[r1]\n\t"
+                        "adcq   %%rsi, %[r2]\n\t"
+                        "adcq   $0, %[r3]\n\t"
+
+                        "mulxq  %[b2], %%rcx, %%rsi\n\t"
+                        "addq   %%rcx, %[r2]\n\t"
+                        "adcq   %%rsi, %[r3]\n\t"
+
+                        // k=3: a0*b3 → r3
+                        "movq   %%r8, %%rcx\n\t"
+                        "imulq  %[b3], %%rcx\n\t"
+                        "addq   %%rcx, %[r3]\n\t"
+
+                        // Row 1: a1 * b[0..1]  (rdx = a1)
+                        "movq   %%r9, %%rdx\n\t"
+                        "mulxq  %[b0], %%rcx, %%rsi\n\t"
+                        "addq   %%rcx, %[r1]\n\t"
+                        "adcq   %%rsi, %[r2]\n\t"
+                        "adcq   $0, %[r3]\n\t"
+
+                        "mulxq  %[b1], %%rcx, %%rsi\n\t"
+                        "addq   %%rcx, %[r2]\n\t"
+                        "adcq   %%rsi, %[r3]\n\t"
+
+                        // k=3: a1*b2 → r3
+                        "movq   %%r9, %%rcx\n\t"
+                        "imulq  %[b2], %%rcx\n\t"
+                        "addq   %%rcx, %[r3]\n\t"
+
+                        // Row 2: a2 * b0  (rdx = a2)
+                        "movq   %%r10, %%rdx\n\t"
+                        "mulxq  %[b0], %%rcx, %%rsi\n\t"
+                        "addq   %%rcx, %[r2]\n\t"
+                        "adcq   %%rsi, %[r3]\n\t"
+
+                        // k=3: a2*b1 → r3
+                        "movq   %%r10, %%rcx\n\t"
+                        "imulq  %[b1], %%rcx\n\t"
+                        "addq   %%rcx, %[r3]\n\t"
+
+                        // k=3: a3*b0 → r3
+                        "movq   %%r11, %%rcx\n\t"
+                        "imulq  %[b0], %%rcx\n\t"
+                        "addq   %%rcx, %[r3]\n\t"
+
+                        : [r0] "=&r" (r0), [r1] "=&r" (r1), [r2] "=&r" (r2), [r3] "=&r" (r3)
+                        : [a0] "m" (a0), [a1] "m" (a1), [a2] "m" (a2), [a3] "m" (a3),
+                          [b0] "m" (b0), [b1] "m" (b1), [b2] "m" (b2), [b3] "m" (b3)
+                        : "rdx", "rcx", "rsi", "r8", "r9", "r10", "r11", "cc"
+                    );
+                    bits[0] = r0;
+                    bits[1] = r1;
+                    bits[2] = r2;
+                    bits[3] = r3;
+                 } else if (this == &other) {
+                      Multiplication::square_schoolbook_truncated_fixed<N>(p_res, &bits[0]);
+                      copy_n(p_res, N, &bits[0]);
+                 } else {
+                      Multiplication::mul_schoolbook_truncated_fixed<N>(p_res, &bits[0], &other.bits[0]);
+                      copy_n(p_res, N, &bits[0]);
+                 }
 
             } else if constexpr (N <= 16) {
                 u64 buf[N];
