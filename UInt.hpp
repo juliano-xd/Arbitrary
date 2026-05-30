@@ -851,6 +851,76 @@ namespace Arbitrary {
     template <u8 N>
     [[nodiscard]] FORCE_INLINE UInt<N> operator*(UInt<N> lhs,
                                             const UInt<N> &rhs) noexcept {
+        if constexpr (N == 4) {
+            // Register-output asm: GCC can elide the NRVO copy by storing
+            // directly to the return slot (unlike +m which writes to bits[]
+            // opaquely).  The stores lhs.bits[i]=ri then target the return slot.
+            u64 r0, r1, r2, r3;
+            __asm__ volatile (
+                "xorl   %k[r0], %k[r0]\n\t"
+                "xorl   %k[r1], %k[r1]\n\t"
+                "xorl   %k[r2], %k[r2]\n\t"
+                "xorl   %k[r3], %k[r3]\n\t"
+
+                // Row 0: a0 * b[0..2]
+                "movq   %[a0], %%rdx\n\t"
+                "mulxq  %[b0], %%rcx, %%rsi\n\t"
+                "addq   %%rcx, %[r0]\n\t"
+                "adcq   %%rsi, %[r1]\n\t"
+
+                "mulxq  %[b1], %%rcx, %%rsi\n\t"
+                "addq   %%rcx, %[r1]\n\t"
+                "adcq   %%rsi, %[r2]\n\t"
+                "adcq   $0, %[r3]\n\t"
+
+                "mulxq  %[b2], %%rcx, %%rsi\n\t"
+                "addq   %%rcx, %[r2]\n\t"
+                "adcq   %%rsi, %[r3]\n\t"
+
+                "imulq  %[b3], %%rdx\n\t"
+                "addq   %%rdx, %[r3]\n\t"
+
+                // Row 1: a1 * b[0..1]
+                "movq   %[a1], %%rdx\n\t"
+                "mulxq  %[b0], %%rcx, %%rsi\n\t"
+                "addq   %%rcx, %[r1]\n\t"
+                "adcq   %%rsi, %[r2]\n\t"
+                "adcq   $0, %[r3]\n\t"
+
+                "mulxq  %[b1], %%rcx, %%rsi\n\t"
+                "addq   %%rcx, %[r2]\n\t"
+                "adcq   %%rsi, %[r3]\n\t"
+
+                "imulq  %[b2], %%rdx\n\t"
+                "addq   %%rdx, %[r3]\n\t"
+
+                // Row 2: a2 * b0
+                "movq   %[a2], %%rdx\n\t"
+                "mulxq  %[b0], %%rcx, %%rsi\n\t"
+                "addq   %%rcx, %[r2]\n\t"
+                "adcq   %%rsi, %[r3]\n\t"
+
+                "imulq  %[b1], %%rdx\n\t"
+                "addq   %%rdx, %[r3]\n\t"
+
+                // Row 3: a3 * b0
+                "movq   %[a3], %%rdx\n\t"
+                "imulq  %[b0], %%rdx\n\t"
+                "addq   %%rdx, %[r3]\n\t"
+
+                : [r0] "=&r" (r0), [r1] "=&r" (r1), [r2] "=&r" (r2), [r3] "=&r" (r3)
+                : [a0] "m" (lhs.bits[0]), [a1] "m" (lhs.bits[1]),
+                  [a2] "m" (lhs.bits[2]), [a3] "m" (lhs.bits[3]),
+                  [b0] "m" (rhs.bits[0]), [b1] "m" (rhs.bits[1]),
+                  [b2] "m" (rhs.bits[2]), [b3] "m" (rhs.bits[3])
+                : "rdx", "rcx", "rsi", "cc"
+            );
+            lhs.bits[0] = r0;
+            lhs.bits[1] = r1;
+            lhs.bits[2] = r2;
+            lhs.bits[3] = r3;
+            return lhs;
+        }
         return lhs *= rhs;
     }
     template <u8 N>
