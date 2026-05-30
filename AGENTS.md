@@ -72,6 +72,82 @@ Key choices:
 
 Performance: ~6.8 ns mul, ~4.4 ns square, ~4.0 ns per limb (mul), ~2.2 ns/limb (square)
 
+## N=4 multiplication optimization
+
+N=4 uses inline asm in `mul_runtime()` with `"+m"` constraints on `bits[]`:
+
+```
+6 MULX (widening) + 4 IMUL (k=3 non-widening) + ~20 ADD/ADC
+```
+
+### Register allocation
+
+- **Accumulators**: r9 (col0), rax (col1), r10 (col2), r8 (col3) — all caller-saved,
+  no callee-save push/pop overhead.
+- **MULX src**: rdx loaded per-row from `bits[i]` via `"+m"` memory operand.
+- **MULX dst**: rcx (lo), rsi (hi) — reused per product within each row.
+- **b-operands**: memory (`"m"` constraints) — L1-cached stack loads, effectively same
+  latency as register MULX because the load µop is dispatched early (out-of-order).
+
+### Carry chain structure (row-scanning schoolbook)
+
+Each row uses 3 ADD/ADC triples and 1 IMUL+ADD for column 3:
+
+```
+add  lo→r_col     ; CF = overflow to next column
+adc  hi→r_col+1   ; r_col+1 += hi + CF; CF = overflow to next column
+adc  $0→r_col+2   ; r_col+2 += CF (captured carry)
+```
+
+The `adc $0` is necessary for all but the first product in row 0 (where all accumulators
+are zero, guaranteeing CF=0 throughout the first triple).
+
+### Throughput bottleneck
+
+At 4.386 GHz, **5.63 ns in-place** (`operator*=`) = ~24.7 cycles. The bottleneck is the
+ADD/ADC serial carry chain through column registers (~15 cycles dominated by r3 len=9 ops).
+
+| Component | Instructions | Cycles (min) |
+|-----------|-------------|--------------|
+| 6 MULX    | 6           | 6 (p1: 1/cy) |
+| 4 IMUL    | 4           | 2 (p0: 2/cy) |
+| ADD/ADC   | ~19         | ~10-15 (serial carry chains) |
+| loads/stores | 8        | ~4 (L1 hits) |
+| **Total** | **~37**     | **~25**      |
+
+### Key design decision: `"+m"` vs `"=&r"` outputs
+
+- **`"+m"`** (current): asm reads a-values from and writes results to `bits[]` directly.
+  BM_MulEq_Pure<4>: **5.59 ns** (fastest in-place). BM_Mul_Pure<4>: 7.77 ns
+  (regression: `+m` prevents GCC from redirecting the store to the NRVO return slot).
+- **`"=&r"`** (previous): asm outputs to registers, GCC stores via SIMD merge.
+  BM_MulEq_Pure<4>: 5.95 ns. BM_Mul_Pure<4>: 5.76 ns (copy elided by NRVO).
+
+In-place (`operator*=`) is the primary path, so `"+m"` is preferred.
+
+### Dead ends tried
+
+| Approach | Result | Why it failed |
+|----------|--------|---------------|
+| b0-in-register (r12) | 6.05 ns | r12 push/pop overhead > memory-MULX load µop savings |
+| Column-scanning Comba | 7.61 ns | Shift/store between columns adds latency |
+| Reg-reg MULX (r12-r14) | 7.82 ns | Callee-save push/pop overhead dominated savings |
+| Removed first `adc $0` | 5.81 ns | Single-instruction saving within noise |
+
+### Theoretical minimum for N=4 truncated
+
+- 6 MULX × 4c latency, 1/cycle = 6 cy minimum to issue
+- ADD/ADC carry chain: ~10-15 cy through register values (fundamentally serial)
+- Target 3.5-4.0 ns (~15-17 cy) unreachable without algorithmic change (e.g., SIMD
+  with 32-bit limbs, or ADX dual-carries for larger N)
+- ADX (ADCX/ADOX) doesn't help N=4 because the carry chain per µop group is too short
+  (3-4 ADCs max per row) to benefit from splitting into two independent chains
+
+### Dispatching note
+
+N=4 is the only non-power-of-2 to use inline asm (not the C++ schoolbook kernel path).
+N=5,6 fall through to `mul_schoolbook_truncated_fixed<N>`. N=7-8 also schoolbook.
+
 ## Verification note
 
 Correctness comparisons MUST use a reference implementation that propagates carry per product
